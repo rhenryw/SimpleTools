@@ -583,112 +583,18 @@ const SimpleCite: Component = () => {
       setUrl(targetUrl);
     }
     setLoading(true);
-    setStatus('Pulling a readable version of the page…');
-    try {
-      let metaResult: Partial<Metadata> | null = null;
-      let markdown: string | null = null;
-      const encodedTarget = encodeURIComponent(targetUrl);
-
-      const jinaUrls = [
-        `https://r.jina.ai/${targetUrl}`,
-        `https://r.jina.ai/https://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
-        `https://r.jina.ai/http://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
-      ];
-
-      for (const jurl of jinaUrls) {
-        try {
-          const jina = await fetch(jurl);
-          if (jina.ok) {
-            const md = await jina.text();
-            if (md) {
-              markdown = md;
-              break;
-            }
-          }
-        } catch {
-        }
-      }
-
-      if (markdown) {
-        const snippet = clampContext(sanitizeContext(markdown));
-        if (!snippet) {
-          setStatus('Could not find readable content. Try the manual option.');
-        } else {
-          setStatus('Extracting metadata with SimpleCite…');
-          const prompt = buildMetadataPrompt(snippet, targetUrl);
-          try {
-            const llm = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
-              headers: {
-                Accept: 'text/plain',
-              },
-            });
-            if (llm.ok) {
-              const raw = await llm.text();
-              const parsed = normalizeMetadata(parseMetadataPayload(raw));
-              if (Object.keys(parsed).length) {
-                metaResult = parsed;
-              } else {
-                setStatus('SimpleCite could not understand the response. Try again or switch to manual.');
-              }
-            } else {
-              setStatus('Pollinations is unavailable right now. Try again in a bit.');
-            }
-          } catch (error) {
-            console.error('SimpleCite metadata fetch failed', error);
-            setStatus('Could not reach the metadata service.');
-          }
-        }
-      }
-
-      if (!metaResult || (!metaResult.title && !metaResult.site)) {
-        setStatus('Could not auto-extract. Try the manual option like on MyBib.');
-        setEngine('manual');
-        return;
-      }
-
-      const now = new Date();
-      const accessed = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-        now.getDate(),
-      ).padStart(2, '0')}`;
-      const merged: Metadata = {
-        ...emptyMeta,
-        ...metaResult,
-        url: targetUrl,
-        year: metaResult.year || now.getFullYear().toString(),
-        accessed: metaResult.accessed || accessed,
-      };
-      setMeta(merged);
-      setStatus('Metadata loaded. Double-check the fields before saving.');
-      setEngine('simplecite');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const citation = () => formatCitation(meta(), guideline());
-
-  const handleSave = async () => {
-    const cite = citation();
-    if (!cite.text) {
-      setStatus('Fill in at least a title or URL before saving.');
-      return;
-    }
-    await db.citations.add({
-      style: guideline(),
-      text: cite.text,
-      meta: JSON.stringify(meta()),
-    setLoading(true);
     setLoadingStage('metadata');
     setStatus('Getting metadata…');
-    });
-    await loadCitations();
-      const initialAttempt = await gatherMetadataFromSource(targetUrl);
-      if (initialAttempt.meta) {
-        metaResult = initialAttempt.meta;
+    try {
+      let metaResult: Partial<Metadata> | null = null;
+
+      const directAttempt = await gatherMetadataFromSource(targetUrl);
+      if (directAttempt.meta) {
+        metaResult = directAttempt.meta;
       } else {
         setLoadingStage('metadataProxy');
         setStatus(
-          initialAttempt.blocked
+          directAttempt.blocked
             ? 'Metadata blocked by CORS—retrying via anything.rhenrywarren.workers.dev…'
             : 'Metadata looked empty—retrying via anything.rhenrywarren.workers.dev…',
         );
@@ -707,8 +613,93 @@ const SimpleCite: Component = () => {
       }
 
       setLoadingStage('ai');
-      setStatus('Oops! Metadata unavailable—asking AI…');
+      setStatus('Oops! Metadata unavailable—asking AI… Pulling a readable version of the page…');
       let markdown: string | null = null;
+      const encodedTarget = encodeURIComponent(targetUrl);
+      const jinaUrls = [
+        `https://r.jina.ai/${targetUrl}`,
+        `https://r.jina.ai/https://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
+        `https://r.jina.ai/http://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
+      ];
+
+      for (const jurl of jinaUrls) {
+        try {
+          const jina = await fetch(jurl);
+          if (jina.ok) {
+            const md = await jina.text();
+            if (md) {
+              markdown = md;
+              break;
+            }
+          }
+        } catch {
+          // swallow fetch errors and try next endpoint
+        }
+      }
+
+      if (markdown) {
+        const snippet = clampContext(sanitizeContext(markdown));
+        if (!snippet) {
+          setStatus('Could not find readable content. Try the manual option.');
+        } else {
+          setStatus('Extracting metadata with SimpleCite…');
+          const prompt = buildMetadataPrompt(snippet, targetUrl);
+          try {
+            const llm = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`, {
+              headers: { Accept: 'text/plain' },
+            });
+            if (llm.ok) {
+              const raw = await llm.text();
+              const parsed = normalizeMetadata(parseMetadataPayload(raw));
+              if (Object.keys(parsed).length) {
+                metaResult = parsed;
+              } else {
+                setStatus('SimpleCite could not understand the response. Try again or switch to manual.');
+              }
+            } else {
+              setStatus('Pollinations is unavailable right now. Try again in a bit.');
+            }
+          } catch (error) {
+            console.error('SimpleCite metadata fetch failed', error);
+            setStatus('Could not reach the metadata service.');
+          }
+        }
+      } else {
+        setStatus('Could not load a readable version of the page. Try the manual option.');
+      }
+
+      if (!metaResult || (!metaResult.title && !metaResult.site)) {
+        setStatus('Could not auto-extract. Try the manual option like on MyBib.');
+        setEngine('manual');
+        return;
+      }
+
+      const merged = mergeMetadataWithDefaults(metaResult, targetUrl);
+      setMeta(merged);
+      setStatus('Metadata loaded via SimpleCite AI. Double-check the fields before saving.');
+      setEngine('simplecite');
+    } finally {
+      setLoading(false);
+      setLoadingStage('idle');
+    }
+  };
+
+  const citation = () => formatCitation(meta(), guideline());
+
+  const handleSave = async () => {
+    const cite = citation();
+    if (!cite.text) {
+      setStatus('Fill in at least a title or URL before saving.');
+      return;
+    }
+    await db.citations.add({
+      style: guideline(),
+      text: cite.text,
+      meta: JSON.stringify(meta()),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await loadCitations();
     setModalOpen(false);
     setStatus('Citation saved—use Copy whenever you need it.');
   };
@@ -717,7 +708,6 @@ const SimpleCite: Component = () => {
     guidelineOptions.find((option) => option.value === guideline()) || guidelineOptions[0];
 
   return (
-      setStatus('Oops! Metadata unavailable—asking AI… Pulling a readable version of the page…');
     <div class={styles.container}>
       <div class={styles.header}>
         <div>
@@ -797,13 +787,27 @@ const SimpleCite: Component = () => {
                     </button>
                   </div>
                 )}
-                const merged = mergeMetadataWithDefaults(metaResult, targetUrl);
-                setMeta(merged);
-                setStatus('Metadata loaded via SimpleCite AI. Double-check the fields before saving.');
-                setEngine('simplecite');
+              </For>
+            </div>
+            <button class={`${styles.button} ${styles.buttonPrimary}`} onClick={startNewCitation}>
+              <span class="material-symbols-outlined" aria-hidden="true">auto_fix_high</span>
+              <span>Launch builder</span>
+            </button>
+          </Show>
+          <div class={styles.status}>{status()}</div>
+        </div>
+        <div class={styles.quickPanel}>
+          <div class={styles.quickCard}>
+            <div class={styles.cardTitle}>Just need the cite?</div>
+            <p class={styles.cardBody}>
+              Choose a guideline, let SimpleCite grab the details, or flip to manual mode when you
+              already know them.
+            </p>
+            <div class={styles.pills}>
+              <For each={guidelineOptions}>
+                {(option) => (
                   <span class={styles.pill}>{option.label}</span>
                 )}
-                setLoadingStage('idle');
               </For>
             </div>
             <button class={`${styles.button} ${styles.buttonPrimary}`} onClick={startNewCitation}>
