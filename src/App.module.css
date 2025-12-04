@@ -142,6 +142,28 @@
   border: 2px solid var(--text-color);
 }
 
+.versionBadge {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Funnel Sans', sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-color);
+  letter-spacing: 0.06em;
+}
+
+.versionBadge a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.versionBadge a:hover,
+.versionBadge a:focus-visible {
+  text-decoration: underline;
+}
+
 @keyframes contactPop {
   from {
     transform: translateY(1rem) scale(0.97);

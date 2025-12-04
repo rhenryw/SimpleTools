@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, onMount } from 'solid-js';
 import { Sidebar } from './components/Sidebar';
 import { SettingsModal } from './components/SettingsModal';
 import { initTheme } from './store/themeStore';
@@ -52,11 +52,41 @@ function App() {
   initTheme();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [contactOpen, setContactOpen] = createSignal(false);
+  const [buildVersion, setBuildVersion] = createSignal('');
+  const [buildLink, setBuildLink] = createSignal('');
   const initialPage: PageKey =
     typeof window !== 'undefined' && window.location.hash.startsWith('#paste=')
       ? 'text-link'
       : 'home';
   const [currentPage, setCurrentPage] = createSignal<PageKey>(initialPage);
+
+  onMount(() => {
+    const controller = new AbortController();
+    const loadVersion = async () => {
+      try {
+        const response = await fetch(
+          'https://api.github.com/repos/rhenryw/SimpleTools/commits?per_page=1',
+          { signal: controller.signal },
+        );
+        if (!response.ok) return;
+        const data = await response.json();
+        const latest = Array.isArray(data) ? data[0] : null;
+        const sha = latest?.sha;
+        const htmlUrl = latest?.html_url;
+        if (typeof sha === 'string' && sha.length) {
+          setBuildVersion(sha.slice(0, 7));
+        }
+        if (typeof htmlUrl === 'string' && htmlUrl.length) {
+          setBuildLink(htmlUrl);
+        }
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        console.error('Failed to load build version', error);
+      }
+    };
+    loadVersion();
+    return () => controller.abort();
+  });
 
   const renderPage = () => {
     const page = currentPage();
@@ -97,6 +127,16 @@ function App() {
       <main>
         {renderPage()}
       </main>
+      <div class={styles.versionBadge}>
+        {buildLink() ? (
+          <a href={buildLink()} target="_blank" rel="noreferrer">
+            Ver. {buildVersion() || '...'}
+          </a>
+        ) : (
+          <>Ver. {buildVersion() || '...'}
+          </>
+        )}
+      </div>
     </>
   );
 }
