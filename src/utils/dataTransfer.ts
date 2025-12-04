@@ -1,5 +1,5 @@
 import { db } from '../db';
-import type { Notebook, Page, HtmlProject, Drawing } from '../db';
+import type { Notebook, Page, HtmlProject, Drawing, Citation } from '../db';
 import JSZip from 'jszip';
 
 export interface SimpleToolsExport {
@@ -8,6 +8,7 @@ export interface SimpleToolsExport {
   pages: Page[];
   htmlProjects: HtmlProject[];
   drawings: Drawing[];
+  citations: Citation[];
 }
 
 const MAGIC = new Uint8Array([83, 84, 66, 49]);
@@ -52,18 +53,20 @@ const decryptBytes = async (data: Uint8Array) => {
 };
 
 export const exportAllData = async () => {
-  const [notebooks, pages, htmlProjects, drawings] = await Promise.all([
+  const [notebooks, pages, htmlProjects, drawings, citations] = await Promise.all([
     db.notebooks.toArray(),
     db.pages.toArray(),
     db.htmlProjects.toArray(),
-    db.drawings.toArray()
+    db.drawings.toArray(),
+    db.citations.toArray()
   ]);
   const payload: SimpleToolsExport = {
     version: 1,
     notebooks,
     pages,
     htmlProjects,
-    drawings
+    drawings,
+    citations
   };
   const zip = new JSZip();
   zip.file('data.json', JSON.stringify(payload));
@@ -123,6 +126,11 @@ export const importAllData = async (raw: string | Uint8Array) => {
     delete (copy as any).id;
     await db.drawings.add(copy);
   }
+  for (const c of data.citations || []) {
+    const copy = { ...c };
+    delete (copy as any).id;
+    await db.citations.add(copy);
+  }
 };
 
 export const clearAllData = async () => {
@@ -130,7 +138,8 @@ export const clearAllData = async () => {
     db.notebooks.clear(),
     db.pages.clear(),
     db.htmlProjects.clear(),
-    db.drawings.clear()
+    db.drawings.clear(),
+    db.citations.clear()
   ]);
   localStorage.clear();
 };

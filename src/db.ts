@@ -32,19 +32,30 @@ export interface Drawing {
   updatedAt: Date;
 }
 
+export interface Citation {
+  id?: number;
+  style: string;
+  text: string;
+  meta?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export class SimpleToolsDB extends Dexie {
   notebooks!: Table<Notebook>;
   pages!: Table<Page>;
   htmlProjects!: Table<HtmlProject>;
   drawings!: Table<Drawing>;
+  citations!: Table<Citation>;
 
   constructor() {
     super('SimpleToolsDB');
-    this.version(3).stores({
+    this.version(4).stores({
       notebooks: '++id, name',
       pages: '++id, notebookId, title',
       htmlProjects: '++id, name, updatedAt',
-      drawings: '++id, name, updatedAt'
+      drawings: '++id, name, updatedAt',
+      citations: '++id, style, createdAt'
     });
   }
 }

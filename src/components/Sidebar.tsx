@@ -2,7 +2,7 @@ import { createSignal, onCleanup, Show } from 'solid-js';
 import type { Component } from 'solid-js';
 import styles from './Sidebar.module.css';
 
-type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link';
+type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link' | 'cite';
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -70,6 +70,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </button>
           <button class={itemClass('text-link')} onClick={() => handleNavigate('text-link')}>
             Text link
+          </button>
+          <button class={itemClass('cite')} onClick={() => handleNavigate('cite')}>
+            SimpleCite
           </button>
           <button class={itemClass('suite')} onClick={() => handleNavigate('suite')}>
             SimpleSuite

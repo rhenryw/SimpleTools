@@ -6,6 +6,7 @@ import Notebook from './pages/Notebook';
 import HtmlViewer from './pages/HtmlViewer';
 import SimpleSuite from './pages/SimpleSuite';
 import TextLink from './pages/TextLink';
+import SimpleCite from './pages/SimpleCite';
 import styles from './App.module.css';
 
 const Home = () => (
@@ -22,7 +23,7 @@ const Home = () => (
   </div>
 );
 
-type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link';
+type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link' | 'cite';
 
 function App() {
   initTheme();
@@ -39,6 +40,7 @@ function App() {
     if (page === 'html-viewer') return <HtmlViewer />;
     if (page === 'suite') return <SimpleSuite />;
     if (page === 'text-link') return <TextLink />;
+    if (page === 'cite') return <SimpleCite />;
     return <Home />;
   };
 

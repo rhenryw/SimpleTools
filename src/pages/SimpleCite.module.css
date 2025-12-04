@@ -1,0 +1,197 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding-left: 60px;
+}
+
+.header {
+  padding: 1rem 1.5rem 0.5rem 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.title {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.modeToggle {
+  font-size: 0.85rem;
+  color: var(--text-2-color);
+  cursor: pointer;
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  padding: 0 1.5rem 1.5rem 1.5rem;
+  gap: 1.5rem;
+}
+
+.column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 0.85rem;
+  color: var(--text-2-color);
+  margin-bottom: 0.25rem;
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--text-color);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 0.9rem;
+}
+
+.textarea {
+  min-height: 100px;
+  resize: vertical;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.row > div {
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.button {
+  background: var(--bg-color);
+  border: 1px solid var(--text-color);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.buttonPrimary {
+  background: var(--main-color);
+  color: var(--bg-color);
+  border-color: var(--main-color);
+}
+
+.buttonSecondary {
+  background: transparent;
+  color: var(--text-color);
+}
+
+.previewBox {
+  flex: 1;
+  border: 1px solid var(--text-color);
+  border-radius: 2px;
+  padding: 0.75rem 1rem;
+  overflow-y: auto;
+  font-size: 0.9rem;
+}
+
+.previewTitle {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.citationLine {
+  margin-bottom: 0.5rem;
+}
+
+.status {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-2-color);
+}
+
+.list {
+  flex: 1;
+  border: 1px solid var(--text-color);
+  border-radius: 2px;
+  overflow-y: auto;
+}
+
+.listItem {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+}
+
+.listItem:hover {
+  background: var(--sidebar-color);
+}
+
+.listStyle {
+  font-size: 0.75rem;
+  color: var(--text-2-color);
+}
+
+.listText {
+  font-size: 0.9rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(10px);
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal {
+  background: var(--bg-color);
+  border: 1px solid rgba(0,0,0,0.5);
+  padding: 1.5rem 1.75rem;
+  max-width: 640px;
+  width: 90%;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.modalTitle {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.modalBody {
+  display: flex;
+  gap: 1rem;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+
