@@ -166,7 +166,7 @@ const DrawPanel: Component = () => {
   const [color, setColor] = createSignal('#ffffff');
   const [size, setSize] = createSignal(3);
   const [drawings, setDrawings] = createSignal<Drawing[]>([]);
-  const [currentId, setCurrentId] = createSignal<number | null>(null);
+  const [, setCurrentId] = createSignal<number | null>(null);
   let canvasRef: HTMLCanvasElement | undefined;
   let ctx: CanvasRenderingContext2D | null = null;
   let drawing = false;

@@ -16,7 +16,11 @@ const encryptBytes = async (data: Uint8Array) => {
   const keyBytes = crypto.getRandomValues(new Uint8Array(32));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);
-  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const cipherBuf = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    data as unknown as BufferSource,
+  );
   const cipher = new Uint8Array(cipherBuf);
   const out = new Uint8Array(MAGIC.length + keyBytes.length + iv.length + cipher.length);
   out.set(MAGIC, 0);
@@ -36,7 +40,11 @@ const decryptBytes = async (data: Uint8Array) => {
   const cipher = data.slice(MAGIC.length + 32 + 12);
   const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['decrypt']);
   try {
-    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      cipher as unknown as BufferSource,
+    );
     return new Uint8Array(plainBuf);
   } catch {
     return null;

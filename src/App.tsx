@@ -1,4 +1,4 @@
-import { createSignal, Suspense } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { Sidebar } from './components/Sidebar';
 import { SettingsModal } from './components/SettingsModal';
 import { initTheme } from './store/themeStore';
@@ -8,7 +8,7 @@ import SimpleSuite from './pages/SimpleSuite';
 import TextLink from './pages/TextLink';
 import styles from './App.module.css';
 
-const Home = (props: { onNavigate: (page: 'notebook' | 'html-viewer') => void }) => (
+const Home = () => (
   <div class={styles.homeContainer}>
     <h1 class={styles.homeTitle}>
       SimpleTools<span class={styles.homeDotLol}>.lol</span>
@@ -39,7 +39,7 @@ function App() {
     if (page === 'html-viewer') return <HtmlViewer />;
     if (page === 'suite') return <SimpleSuite />;
     if (page === 'text-link') return <TextLink />;
-    return <Home onNavigate={setCurrentPage} />;
+    return <Home />;
   };
 
   return (

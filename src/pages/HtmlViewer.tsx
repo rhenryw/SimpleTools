@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For, onMount } from 'solid-js';
+import { createSignal, For, onMount } from 'solid-js';
 import type { Component } from 'solid-js';
 import { db } from '../db';
 import type { HtmlProject } from '../db';
