@@ -717,8 +717,7 @@ const SimpleCite: Component = () => {
             <span class={styles.betaPill}>revamped</span>
           </div>
           <p class={styles.subtitle}>
-            Works like Scribbr or MyBib—pick a guideline, gather metadata with SimpleCite, and copy
-            the finished reference without bouncing to another tab.
+            Super fast citation generator with AI-powered metadata extraction. If it can't get the metadata it sends it to an LLM to get it for you!
           </p>
         </div>
         <div class={styles.actions}>
@@ -949,8 +948,7 @@ const SimpleCite: Component = () => {
                       onInput={(e) => setUrl((e.target as HTMLInputElement).value)}
                     />
                     <div class={styles.helperText}>
-                      SimpleCite fetches readable markdown via jina.ai so it behaves like Scribbr's
-                      auto-cite.
+                      SimpleCite can fetch metadata for most webpages. Some older websites (or poorly made) may not have this tag, so our LLM fetches it from the page content directly (this takes longer).
                     </div>
                     <div class={styles.actions}>
                       <button
