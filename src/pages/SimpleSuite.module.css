@@ -172,6 +172,7 @@
   background: var(--bg-color);
   flex: 1;
   display: flex;
+  min-height: 0;
 }
 
 .canvasToolbar {
@@ -194,6 +195,7 @@
 
 .canvasWrapper > div {
   flex: 1;
+  min-height: 0;
 }
 
 .projectsList {
@@ -280,12 +282,88 @@
   background-color: var(--bg-color);
 }
 
+.canvasWrapper .canvas-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.canvasWrapper canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .canvasWrapper input[type="number"],
 .canvasWrapper .mce-prop-number-input,
 .canvasWrapper .mce-layers-panel-item-label-input {
   background-color: transparent;
   color: var(--text-color);
   border: 1px solid var(--text-color);
+}
+
+.exportOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2300;
+}
+
+.exportModal {
+  background: var(--bg-color);
+  border: 1px solid var(--text-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: min(420px, 90vw);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.exportModal h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+}
+
+.exportRow {
+  margin-bottom: 0.75rem;
+}
+
+.exportGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.exportGrid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.select {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--text-color);
+  background: transparent;
+  color: var(--text-color);
+  font-size: 0.85rem;
+}
+
+.exportButtons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.dataButton {
+  background: var(--bg-color);
+  border: 1px solid var(--text-color);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
 

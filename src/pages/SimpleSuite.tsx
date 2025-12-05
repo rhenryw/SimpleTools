@@ -375,7 +375,13 @@ const DrawPanel: Component = () => {
   const [currentId, setCurrentId] = createSignal<number | null>(null);
   const [drawingName, setDrawingName] = createSignal('');
   const [showDrawings, setShowDrawings] = createSignal(false);
+  const [exportOpen, setExportOpen] = createSignal(false);
+  const [exportName, setExportName] = createSignal('');
+  const [exportFormat, setExportFormat] = createSignal<'png' | 'jpeg'>('png');
+  const [exportWidth, setExportWidth] = createSignal('');
+  const [exportHeight, setExportHeight] = createSignal('');
   let editorContainerRef: HTMLDivElement | undefined;
+  let editorInstance: Editor | null = null;
 
   const loadDrawings = async () => {
     const all = await db.drawings.orderBy('updatedAt').reverse().toArray();
@@ -385,10 +391,10 @@ const DrawPanel: Component = () => {
   const initEditor = () => {
     if (!editorContainerRef) return;
     editorContainerRef.innerHTML = '';
-    const rect = editorContainerRef.getBoundingClientRect();
-    const width = rect.width || 600;
-    const height = rect.height || 400;
-    Editor.createBlank(editorContainerRef, width, height, {});
+    const parent = editorContainerRef.parentElement;
+    const width = parent?.clientWidth || 600;
+    const height = parent?.clientHeight || 400;
+    editorInstance = Editor.createBlank(editorContainerRef, width, height, {});
   };
 
   onMount(() => {
@@ -452,6 +458,50 @@ const DrawPanel: Component = () => {
     await loadDrawings();
   };
 
+  const exportDrawing = async () => {
+    if (!editorInstance) return;
+    const staticCanvas = await editorInstance.cloneToStaticCanvas();
+    const format = exportFormat();
+    const mime = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const baseName = (exportName().trim() || drawingName().trim() || 'drawing').replace(
+      /[\\\/:*?"<>|]+/g,
+      '-',
+    );
+    const baseW = staticCanvas.getWidth();
+    const baseH = staticCanvas.getHeight();
+    const targetW = parseInt(exportWidth() || `${baseW}`, 10) || baseW;
+    const targetH = parseInt(exportHeight() || `${baseH}`, 10) || baseH;
+    const out = document.createElement('canvas');
+    out.width = targetW;
+    out.height = targetH;
+    const ctx = out.getContext('2d');
+    if (!ctx) return;
+    if (format === 'jpeg') {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+    } else {
+      ctx.clearRect(0, 0, targetW, targetH);
+    }
+    const srcDataUrl = staticCanvas.exportToDataURL('png');
+    await new Promise<void>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+        resolve();
+      };
+      img.onerror = () => reject(new Error('Failed to load export image'));
+      img.src = srcDataUrl;
+    });
+    const dataUrl = out.toDataURL(mime);
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `${baseName}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setExportOpen(false);
+  };
+
   const loadDrawing = (drawingItem: Drawing) => {
     if (!editorContainerRef) return;
     const canvas = editorContainerRef.querySelector('canvas') as HTMLCanvasElement | null;
@@ -505,6 +555,35 @@ const DrawPanel: Component = () => {
           >
             <span class="material-symbols-outlined">save_as</span>
           </button>
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={() => {
+              let width = 600;
+              let height = 400;
+              if (editorContainerRef) {
+                const canvas = editorContainerRef.querySelector('canvas') as HTMLCanvasElement | null;
+                if (canvas) {
+                  width = canvas.width || width;
+                  height = canvas.height || height;
+                } else {
+                  const parent = editorContainerRef.parentElement;
+                  if (parent) {
+                    width = parent.clientWidth || width;
+                    height = parent.clientHeight || height;
+                  }
+                }
+              }
+              setExportName(drawingName() || 'drawing');
+              setExportFormat('png');
+              setExportWidth(`${width}`);
+              setExportHeight(`${height}`);
+              setExportOpen(true);
+            }}
+            title="Export"
+          >
+            <span class="material-symbols-outlined">download</span>
+          </button>
           <span class={styles.toolbarPowered}>
             Powered by{' '}
             <a
@@ -536,6 +615,74 @@ const DrawPanel: Component = () => {
           <div ref={editorContainerRef} />
         </div>
       </div>
+      {exportOpen() && (
+        <div class={styles.exportOverlay} onClick={() => setExportOpen(false)}>
+          <div class={styles.exportModal} onClick={(e) => e.stopPropagation()}>
+            <h3>Export drawing</h3>
+            <div class={styles.exportRow}>
+              <label>
+                <span>File name</span>
+                <input
+                  class={styles.smallInput}
+                  value={exportName()}
+                  onInput={(e) => setExportName((e.target as HTMLInputElement).value)}
+                />
+              </label>
+            </div>
+            <div class={styles.exportGrid}>
+              <label>
+                <span>Format</span>
+                <select
+                  class={styles.select}
+                  value={exportFormat()}
+                  onInput={(e) =>
+                    setExportFormat(
+                      ((e.target as HTMLSelectElement).value as 'png' | 'jpeg') || 'png',
+                    )
+                  }
+                >
+                  <option value="png">PNG</option>
+                  <option value="jpeg">JPEG</option>
+                </select>
+              </label>
+              <label>
+                <span>Width</span>
+                <input
+                  type="number"
+                  class={styles.smallInput}
+                  value={exportWidth()}
+                  onInput={(e) => setExportWidth((e.target as HTMLInputElement).value)}
+                />
+              </label>
+              <label>
+                <span>Height</span>
+                <input
+                  type="number"
+                  class={styles.smallInput}
+                  value={exportHeight()}
+                  onInput={(e) => setExportHeight((e.target as HTMLInputElement).value)}
+                />
+              </label>
+            </div>
+            <div class={styles.exportButtons}>
+              <button
+                type="button"
+                class={styles.dataButton}
+                onClick={() => setExportOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class={styles.dataButton}
+                onClick={exportDrawing}
+              >
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
