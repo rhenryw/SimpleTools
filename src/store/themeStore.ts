@@ -52,6 +52,29 @@ export const addCustomTheme = (theme: Omit<Theme, 'id'> & { id?: string }) => {
   return withId;
 };
 
+export const upsertCustomTheme = (theme: Theme) => {
+  const existing = readCustomThemes();
+  const idx = existing.findIndex((t) => t.id === theme.id);
+  let next: Theme[];
+  if (idx >= 0) {
+    next = [...existing];
+    next[idx] = theme;
+  } else {
+    next = [...existing, theme];
+  }
+  writeCustomThemes(next);
+  return theme;
+};
+
+export const deleteCustomTheme = (id: string) => {
+  const existing = readCustomThemes();
+  const next = existing.filter((t) => t.id !== id);
+  writeCustomThemes(next);
+  if (currentThemeName() === id) {
+    loadTheme(DEFAULT_THEME);
+  }
+};
+
 export const loadAllThemes = async () => {
   const promises = AVAILABLE_THEMES.map(async (name): Promise<Theme | null> => {
     try {
@@ -94,6 +117,20 @@ export const selectTheme = async (themeId: string) => {
     return;
   }
   await loadTheme(themeId);
+};
+
+export const exportThemeState = () => {
+  return {
+    selectedId: currentThemeName(),
+    customThemes: readCustomThemes(),
+  };
+};
+
+export const importThemeState = (state: { selectedId: string; customThemes: Theme[] }) => {
+  writeCustomThemes(state.customThemes || []);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('simpletools-theme', state.selectedId || DEFAULT_THEME);
+  }
 };
 
 const applyTheme = (theme: Theme) => {

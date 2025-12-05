@@ -1,6 +1,8 @@
 import { db } from '../db';
 import type { Notebook, Page, HtmlProject, Drawing, Citation } from '../db';
 import JSZip from 'jszip';
+import type { Theme } from '../store/themeStore';
+import { exportThemeState, importThemeState } from '../store/themeStore';
 
 export interface SimpleToolsExport {
   version: number;
@@ -9,6 +11,10 @@ export interface SimpleToolsExport {
   htmlProjects: HtmlProject[];
   drawings: Drawing[];
   citations: Citation[];
+  theme?: {
+    selectedId: string;
+    customThemes: Theme[];
+  };
 }
 
 const MAGIC = new Uint8Array([83, 84, 66, 49]);
@@ -66,7 +72,8 @@ export const exportAllData = async () => {
     pages,
     htmlProjects,
     drawings,
-    citations
+    citations,
+    theme: exportThemeState(),
   };
   const zip = new JSZip();
   zip.file('data.json', JSON.stringify(payload));
@@ -130,6 +137,19 @@ export const importAllData = async (raw: string | Uint8Array) => {
     const copy = { ...c };
     delete (copy as any).id;
     await db.citations.add(copy);
+  }
+
+  if (data.theme && typeof data.theme === 'object') {
+    const selectedId =
+      typeof (data.theme as any).selectedId === 'string' ? (data.theme as any).selectedId : '';
+    const customThemes =
+      Array.isArray((data.theme as any).customThemes) ? (data.theme as any).customThemes : [];
+    if (selectedId || customThemes.length) {
+      importThemeState({
+        selectedId,
+        customThemes,
+      });
+    }
   }
 };
 

@@ -40,9 +40,19 @@ const Home = (props: HomeProps) => (
       </svg>
       <span class={styles.arrowText}>hover to start</span>
     </div>
-    <button class={styles.contactLink} type="button" onClick={props.onOpenContact}>
-      Contact me
-    </button>
+    <div class={styles.contactRow}>
+      <a
+        class={styles.discordLink}
+        href="https://discord.gg/XygZfmMM86"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Discord
+      </a>
+      <button class={styles.contactLink} type="button" onClick={props.onOpenContact}>
+        Contact me
+      </button>
+    </div>
   </div>
 );
 

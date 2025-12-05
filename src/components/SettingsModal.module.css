@@ -33,12 +33,19 @@
     gap: 0.85rem;
     margin-top: 1rem;
 }
+.themeItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+}
 .themeButton {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
     border: 1px solid transparent;
+    border-radius: 2px;
     padding: 0.5rem;
     cursor: pointer;
 }
@@ -51,6 +58,47 @@
     height: 40px;
     position: relative;
     box-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+}
+
+.themeLabelRow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.themeName {
+    font-size: 0.8rem;
+}
+
+.themeEditButton {
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+.themeEditButton .material-symbols-outlined {
+    font-size: 16px;
+}
+
+.addThemeButton {
+    border-style: solid;
+    border-color: var(--text-color);
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+.previewAdd {
+    width: 60px;
+    height: 40px;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.previewAdd .material-symbols-outlined {
+    font-size: 22px;
 }
 .closeButton {
     margin-top: 2rem;
@@ -106,6 +154,36 @@
     justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 0.75rem;
+}
+
+.creatorCodeRow {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.75rem;
+}
+
+.iconCircleButton {
+    background: var(--bg-color);
+    border: 1px solid var(--text-color);
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    transition: all 0.15s;
+}
+
+.iconCircleButton .material-symbols-outlined {
+    font-size: 18px;
+}
+
+.iconCircleButton:hover {
+    background-color: var(--main-color);
+    color: var(--bg-color);
 }
 
 .dataRow {
