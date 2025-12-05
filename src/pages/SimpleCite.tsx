@@ -183,6 +183,13 @@ const normalizeMetadata = (data: Partial<Metadata> | null | undefined): Partial<
   return cleaned;
 };
 
+const isMetadataComplete = (data: Partial<Metadata> | null | undefined) => {
+  if (!data) return false;
+  const normalized = normalizeMetadata(data);
+  const keys: (keyof Metadata)[] = ['title', 'author', 'year', 'publisher', 'site'];
+  return keys.every((key) => Boolean(normalized[key]));
+};
+
 const hasMeaningfulMetadata = (data: Partial<Metadata> | null | undefined) => {
   if (!data) return false;
   return Boolean(data.title || data.author || data.site || data.publisher);
@@ -604,7 +611,7 @@ const SimpleCite: Component = () => {
         }
       }
 
-      if (metaResult) {
+      if (metaResult && isMetadataComplete(metaResult)) {
         const merged = mergeMetadataWithDefaults(metaResult, targetUrl);
         setMeta(merged);
         setStatus('Metadata loaded. Double-check the fields before saving.');
@@ -652,7 +659,7 @@ const SimpleCite: Component = () => {
               const raw = await llm.text();
               const parsed = normalizeMetadata(parseMetadataPayload(raw));
               if (Object.keys(parsed).length) {
-                metaResult = parsed;
+                metaResult = metaResult ? { ...metaResult, ...parsed } : parsed;
               } else {
                 setStatus('SimpleCite could not understand the response. Try again or switch to manual.');
               }
