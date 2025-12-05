@@ -4,7 +4,95 @@ import { db } from '../db';
 import type { Drawing } from '../db';
 import styles from './SimpleSuite.module.css';
 
-type SuiteTab = 'text' | 'files' | 'draw';
+export type SuiteTab = 'text' | 'files' | 'human' | 'draw';
+
+type HumanVocab = Record<string, string[]>;
+
+let humanVocabulary: HumanVocab = {};
+let humanStopWords: string[] = [];
+let humanFixedTerms: string[] = [];
+let humanResourcesLoaded = false;
+
+const humanEscapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const humanIsStopWord = (word: string) => humanStopWords.includes(word.toLowerCase());
+
+const humanIsProperNoun = (word: string) => /^[A-Z][a-z]*$/.test(word);
+
+const humanIsFixedTerm = (word: string) => humanFixedTerms.includes(word.toLowerCase());
+
+const humanReplaceWord = (word: string) => {
+  const lower = word.toLowerCase();
+  if (humanIsStopWord(lower) || humanIsProperNoun(word) || humanIsFixedTerm(lower)) return word;
+  if (['and', 'or', 'but', 'in', 'on', 'at', 'with'].includes(lower)) return word;
+  const list = humanVocabulary[lower];
+  if (list && list.length) {
+    const idx = Math.floor(Math.random() * list.length);
+    return list[idx] || word;
+  }
+  return word;
+};
+
+const humanParaphraseText = (text: string) =>
+  text
+    .split(/(\b|\s+|[.,!?]+)/)
+    .map((w) => (/\w+/.test(w) ? humanReplaceWord(w) : w))
+    .join('');
+
+const humanBuildDiffHtml = (before: string, after: string, changedClass: string) => {
+  const beforeTokens = before.split(/(\s+)/);
+  const afterTokens = after.split(/(\s+)/);
+  const max = Math.max(beforeTokens.length, afterTokens.length);
+  const parts: string[] = [];
+  for (let i = 0; i < max; i += 1) {
+    const next = afterTokens[i];
+    const prev = beforeTokens[i];
+    if (!next) continue;
+    if (next !== prev && next.trim()) {
+      parts.push(`<span class="${changedClass}">${humanEscapeHtml(next)}</span>`);
+    } else {
+      parts.push(humanEscapeHtml(next));
+    }
+  }
+  return parts.join('');
+};
+
+const loadHumanResources = () => {
+  if (humanResourcesLoaded) return;
+  humanResourcesLoaded = true;
+  if (!humanFixedTerms.length) {
+    fetch('/fixedterms.json')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) humanFixedTerms = data.map((item) => String(item).toLowerCase());
+      })
+      .catch(() => {});
+  }
+  if (!Object.keys(humanVocabulary).length) {
+    fetch(
+      'https://cdn.jsdelivr.net/gh/rhenryw/AI-Text-Humanizer@main/eng_synonyms.json',
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && typeof data === 'object') humanVocabulary = data as HumanVocab;
+      })
+      .catch(() => {});
+  }
+  if (!humanStopWords.length) {
+    fetch('https://cdn.jsdelivr.net/gh/rhenryw/AI-Text-Humanizer@main/stop_words.json')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) humanStopWords = data;
+      })
+      .catch(() => {});
+  }
+};
 
 const TextTools: Component = () => {
   const [text, setText] = createSignal('');
@@ -106,6 +194,124 @@ const TextTools: Component = () => {
         />
         <div class={styles.stats}>
           {stats().words} words · {stats().chars} characters · {stats().lines} lines
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const HumanizerPanel: Component = () => {
+  const [input, setInput] = createSignal('');
+  const [humanizing, setHumanizing] = createSignal(false);
+  const [status, setStatus] = createSignal('');
+  const [diffHtml, setDiffHtml] = createSignal('');
+  const [elapsed, setElapsed] = createSignal(0);
+  const charCount = createMemo(() => input().length);
+  let panelRef: HTMLDivElement | undefined;
+
+  onMount(() => {
+    loadHumanResources();
+  });
+
+  const handleHumanize = async () => {
+    const value = input().trim();
+    if (!value) {
+      setStatus('Enter text to humanize');
+      return;
+    }
+    if (value.length > 5000) {
+      setStatus('Text exceeds 5000 character limit');
+      return;
+    }
+    let timer: number | undefined;
+    try {
+      setHumanizing(true);
+      setElapsed(0);
+      setStatus('Loading… ETA 30 sec');
+      const start = Date.now();
+      timer = window.setInterval(() => {
+        const seconds = (Date.now() - start) / 1000;
+        setElapsed(seconds);
+      }, 200);
+      const localPass = humanParaphraseText(value);
+      const prompt = `
+Find better synonyms for things, but leave some a little quirky. Thanks! also, just return the text, and remove any em-dashes that could be replaced by commas or another way.
+
+${localPass}
+`;
+      const encoded = encodeURIComponent(prompt);
+      const response = await fetch(`https://text.pollinations.ai/${encoded}?model=openai`, {
+        headers: { Accept: 'text/plain' },
+      });
+      const result = await response.text();
+      const trimmed = result.trim();
+      setInput(trimmed);
+      setDiffHtml(humanBuildDiffHtml(value, trimmed, styles.diffChanged));
+      setStatus('Done. Changed parts are highlighted.');
+    } catch {
+      setStatus('Error processing request');
+    } finally {
+      setHumanizing(false);
+      setElapsed(0);
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+      }
+    }
+  };
+
+  const handleCopy = async () => {
+    const value = input();
+    if (!value.trim()) {
+      setStatus('Nothing to copy');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus('Copied to clipboard');
+    } catch {
+      setStatus('Clipboard permissions blocked');
+    }
+  };
+
+  return (
+    <div class={styles.content}>
+      <div class={styles.column}>
+        
+        <div class={styles.toolbar}>
+          <button
+            class={styles.toolButton}
+            type="button"
+            disabled={humanizing()}
+            onClick={handleHumanize}
+          >
+            {humanizing() ? `Humanizing (${elapsed().toFixed(1)}s)` : 'Humanize'}
+          </button>
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={handleCopy}
+            aria-label="Copy humanized text"
+          >
+            <span class="material-symbols-outlined">content_copy</span>
+          </button>
+        </div>
+        <div
+          class={styles.outputBox}
+          contentEditable
+          data-placeholder="Paste or type and hit Humanize!"
+          ref={panelRef}
+          onInput={(e) => setInput((e.target as HTMLDivElement).innerText || '')}
+          innerHTML={diffHtml() || humanEscapeHtml(input())}
+        />
+        <div class={styles.humanizerFooter}>
+          <div
+            class={`${styles.charCounter} ${
+              charCount() > 5000 ? styles.charCounterError : ''
+            }`}
+          >
+            {charCount()}/5000 characters
+          </div>
+          <div class={styles.statusRow}>{status()}</div>
         </div>
       </div>
     </div>
@@ -296,11 +502,22 @@ const DrawPanel: Component = () => {
   );
 };
 
-export const SimpleSuite: Component = () => {
-  const [tab, setTab] = createSignal<SuiteTab>('text');
+interface SimpleSuiteProps {
+  initialTab?: SuiteTab;
+  onTabChange?: (tab: SuiteTab) => void;
+}
+
+export const SimpleSuite: Component<SimpleSuiteProps> = (props) => {
+  const [tab, setTab] = createSignal<SuiteTab>(props.initialTab || 'text');
+
+  const selectTab = (next: SuiteTab) => {
+    setTab(next);
+    if (props.onTabChange) props.onTabChange(next);
+  };
 
   const renderTab = () => {
     if (tab() === 'files') return <FilesPanel />;
+    if (tab() === 'human') return <HumanizerPanel />;
     if (tab() === 'draw') return <DrawPanel />;
     return <TextTools />;
   };
@@ -310,19 +527,25 @@ export const SimpleSuite: Component = () => {
       <div class={styles.tabs}>
         <button
           class={`${styles.tabButton} ${tab() === 'text' ? styles.tabButtonActive : ''}`}
-          onClick={() => setTab('text')}
+          onClick={() => selectTab('text')}
         >
           Text tools
         </button>
         <button
           class={`${styles.tabButton} ${tab() === 'files' ? styles.tabButtonActive : ''}`}
-          onClick={() => setTab('files')}
+          onClick={() => selectTab('files')}
         >
           File preview
         </button>
         <button
+          class={`${styles.tabButton} ${tab() === 'human' ? styles.tabButtonActive : ''}`}
+          onClick={() => selectTab('human')}
+        >
+          AI Humanizer
+        </button>
+        <button
           class={`${styles.tabButton} ${tab() === 'draw' ? styles.tabButtonActive : ''}`}
-          onClick={() => setTab('draw')}
+          onClick={() => selectTab('draw')}
         >
           Drawing
         </button>

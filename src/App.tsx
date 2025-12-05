@@ -4,7 +4,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { initTheme } from './store/themeStore';
 import Notebook from './pages/Notebook';
 import HtmlViewer from './pages/HtmlViewer';
-import SimpleSuite from './pages/SimpleSuite';
+import SimpleSuite, { type SuiteTab } from './pages/SimpleSuite';
 import TextLink from './pages/TextLink';
 import SimpleCite from './pages/SimpleCite';
 import styles from './App.module.css';
@@ -58,20 +58,64 @@ const Home = (props: HomeProps) => (
 
 type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link' | 'cite';
 
+const defaultSuiteTab: SuiteTab = 'text';
+
+const parseRoute = (): { page: PageKey; suiteTab: SuiteTab } => {
+  if (typeof window === 'undefined') return { page: 'home', suiteTab: defaultSuiteTab };
+  const { pathname, hash } = window.location;
+  if (hash && hash.startsWith('#paste=')) {
+    return { page: 'text-link', suiteTab: defaultSuiteTab };
+  }
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/' || clean === '/home') return { page: 'home', suiteTab: defaultSuiteTab };
+  if (clean === '/notebook') return { page: 'notebook', suiteTab: defaultSuiteTab };
+  if (clean === '/html-viewer') return { page: 'html-viewer', suiteTab: defaultSuiteTab };
+  if (clean === '/text-link') return { page: 'text-link', suiteTab: defaultSuiteTab };
+  if (clean === '/cite') return { page: 'cite', suiteTab: defaultSuiteTab };
+  if (clean === '/suite') return { page: 'suite', suiteTab: defaultSuiteTab };
+  if (clean.startsWith('/suite/')) {
+    const [, , sub] = clean.split('/');
+    if (sub === 'files') return { page: 'suite', suiteTab: 'files' };
+    if (sub === 'humanize') return { page: 'suite', suiteTab: 'human' };
+    if (sub === 'draw') return { page: 'suite', suiteTab: 'draw' };
+    return { page: 'suite', suiteTab: defaultSuiteTab };
+  }
+  return { page: 'home', suiteTab: defaultSuiteTab };
+};
+
+const pathFor = (page: PageKey, suiteTab: SuiteTab): string => {
+  if (page === 'home') return '/';
+  if (page === 'notebook') return '/notebook';
+  if (page === 'html-viewer') return '/html-viewer';
+  if (page === 'text-link') return '/text-link';
+  if (page === 'cite') return '/cite';
+  if (page === 'suite') {
+    if (suiteTab === 'files') return '/suite/files';
+    if (suiteTab === 'human') return '/suite/humanize';
+    if (suiteTab === 'draw') return '/suite/draw';
+    return '/suite/text';
+  }
+  return '/';
+};
+
 function App() {
   initTheme();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [contactOpen, setContactOpen] = createSignal(false);
   const [buildVersion, setBuildVersion] = createSignal('');
   const [buildLink, setBuildLink] = createSignal('');
-  const initialPage: PageKey =
-    typeof window !== 'undefined' && window.location.hash.startsWith('#paste=')
-      ? 'text-link'
-      : 'home';
-  const [currentPage, setCurrentPage] = createSignal<PageKey>(initialPage);
+  const initial = parseRoute();
+  const [currentPage, setCurrentPage] = createSignal<PageKey>(initial.page);
+  const [suiteTab, setSuiteTab] = createSignal<SuiteTab>(initial.suiteTab);
 
   onMount(() => {
     const controller = new AbortController();
+    const handlePopState = () => {
+      const route = parseRoute();
+      setCurrentPage(route.page);
+      setSuiteTab(route.suiteTab);
+    };
+    window.addEventListener('popstate', handlePopState);
     const loadVersion = async () => {
       try {
         const response = await fetch(
@@ -95,14 +139,38 @@ function App() {
       }
     };
     loadVersion();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      window.removeEventListener('popstate', handlePopState);
+    };
   });
+
+  const navigate = (page: PageKey) => {
+    const nextSuiteTab = page === 'suite' ? suiteTab() : suiteTab();
+    setCurrentPage(page);
+    if (typeof window !== 'undefined') {
+      const path = pathFor(page, nextSuiteTab);
+      if (window.location.pathname !== path) {
+        window.history.pushState({ page, suiteTab: nextSuiteTab }, '', path + window.location.hash);
+      }
+    }
+  };
+
+  const handleSuiteTabChange = (tab: SuiteTab) => {
+    setSuiteTab(tab);
+    if (typeof window !== 'undefined') {
+      const path = pathFor('suite', tab);
+      if (window.location.pathname !== path) {
+        window.history.pushState({ page: 'suite', suiteTab: tab }, '', path + window.location.hash);
+      }
+    }
+  };
 
   const renderPage = () => {
     const page = currentPage();
     if (page === 'notebook') return <Notebook />;
     if (page === 'html-viewer') return <HtmlViewer />;
-    if (page === 'suite') return <SimpleSuite />;
+    if (page === 'suite') return <SimpleSuite initialTab={suiteTab()} onTabChange={handleSuiteTabChange} />;
     if (page === 'text-link') return <TextLink />;
     if (page === 'cite') return <SimpleCite />;
     return <Home onOpenContact={() => setContactOpen(true)} />;
@@ -113,7 +181,7 @@ function App() {
       <Sidebar
         onOpenSettings={() => setSettingsOpen(true)}
         currentPage={currentPage()}
-        onNavigate={setCurrentPage}
+        onNavigate={navigate}
       />
       <SettingsModal isOpen={settingsOpen()} onClose={() => setSettingsOpen(false)} />
       {contactOpen() && (

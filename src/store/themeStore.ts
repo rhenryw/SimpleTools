@@ -15,7 +15,6 @@ export interface Theme {
 
 const DEFAULT_THEME = 'cream';
 const CUSTOM_THEMES_KEY = 'simpletools-custom-themes';
-export const AVAILABLE_THEMES = ['matcha', 'dark', 'light', 'cream', 'future', 'oceanmist', 'rose', 'sage', 'citrus'];
 
 const [currentThemeName, setCurrentThemeName] = createSignal(
   localStorage.getItem('simpletools-theme') || DEFAULT_THEME
@@ -23,6 +22,26 @@ const [currentThemeName, setCurrentThemeName] = createSignal(
 
 const [themeData, setThemeData] = createSignal<Theme | null>(null);
 const [allThemes, setAllThemes] = createSignal<Theme[]>([]);
+
+let availableThemeIds: string[] | null = null;
+
+const loadAvailableThemes = async (): Promise<string[]> => {
+  if (availableThemeIds && availableThemeIds.length) return availableThemeIds;
+  try {
+    const res = await fetch('/themes/themes.txt');
+    if (!res.ok) throw new Error('themes.txt not found');
+    const txt = await res.text();
+    const ids = txt
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    availableThemeIds = ids;
+    return ids;
+  } catch {
+    availableThemeIds = ['matcha', 'dark', 'light', 'cream', 'future', 'oceanmist', 'rose', 'sage', 'citrus'];
+    return availableThemeIds;
+  }
+};
 
 const readCustomThemes = (): Theme[] => {
   if (typeof localStorage === 'undefined') return [];
@@ -76,7 +95,8 @@ export const deleteCustomTheme = (id: string) => {
 };
 
 export const loadAllThemes = async () => {
-  const promises = AVAILABLE_THEMES.map(async (name): Promise<Theme | null> => {
+  const ids = await loadAvailableThemes();
+  const promises = ids.map(async (name): Promise<Theme | null> => {
     try {
       const res = await fetch(`/themes/${name}.yaml`);
       const txt = await res.text();

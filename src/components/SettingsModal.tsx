@@ -252,7 +252,7 @@ export const SettingsModal: Component<SettingsModalProps> = (props) => {
                     onClick={async () => {
                       const theme = buildThemeFromInputs();
                       const lines = [
-                        `name: "${theme.name}"`,
+                        `name: ${theme.name}`,
                         `mainColor: "${theme.mainColor}"`,
                         `color2: "${theme.color2}"`,
                         `backgroundColor: "${theme.backgroundColor}"`,

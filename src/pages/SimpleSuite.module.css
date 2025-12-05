@@ -77,6 +77,12 @@
   margin-top: 0.5rem;
 }
 
+.statusRow {
+  font-size: 0.8rem;
+  margin-top: 0.35rem;
+  opacity: 0.8;
+}
+
 .outputBox {
   flex: 1;
   border: 1px solid var(--text-color);
@@ -85,6 +91,40 @@
   background: transparent;
   font-family: monospace;
   font-size: 0.9rem;
+}
+
+.outputBox[contenteditable="true"]:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.6);
+  font-family: inherit;
+  pointer-events: none;
+}
+
+.humanizerActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.humanizerFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+
+.charCounter {
+  font-size: 0.8rem;
+}
+
+.charCounterError {
+  color: #b00020;
+}
+
+.diffChanged {
+  background-color: rgba(0, 200, 0, 0.18);
 }
 
 .labelRow {

@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: 
+Disallow: /cgi-bin/
+Sitemap: https://simpletools.lol/sitemap.xml
+
+Haha robots this site runs on da users computer have fun scraping nothing
