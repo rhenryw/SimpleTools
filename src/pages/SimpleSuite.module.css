@@ -253,6 +253,21 @@
   font-size: 0.85rem;
 }
 
+.projectDeleteButton {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projectDeleteButton .material-symbols-outlined {
+  font-size: 18px;
+}
+
 .canvasWrapper .mce-toolbox,
 .canvasWrapper .mce-sidebar,
 .canvasWrapper .mce-panel,

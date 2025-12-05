@@ -518,6 +518,18 @@ const DrawPanel: Component = () => {
     setDrawingName(drawingItem.name);
   };
 
+  const deleteDrawing = async (id: number, e: Event) => {
+    e.stopPropagation();
+    if (!confirm('Delete this drawing?')) return;
+    await db.drawings.delete(id);
+    if (currentId() === id) {
+      setCurrentId(null);
+      setDrawingName('');
+      initEditor();
+    }
+    await loadDrawings();
+  };
+
   return (
     <div class={styles.content}>
       <div class={styles.column}>
@@ -607,6 +619,14 @@ const DrawPanel: Component = () => {
                 onClick={() => loadDrawing(d)}
               >
                 <span class={styles.projectItemName}>{d.name}</span>
+                <button
+                  type="button"
+                  class={styles.projectDeleteButton}
+                  onClick={(e) => deleteDrawing(d.id!, e)}
+                  title="Delete"
+                >
+                  <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                </button>
               </div>
             ))}
           </div>
