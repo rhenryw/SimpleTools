@@ -88,8 +88,30 @@ const Notebook: Component = () => {
       const level = Math.min(hashes.length, 3);
       return `<h${level}>${text}</h${level}>`;
     });
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<strong><em>${content}</em></strong>`;
+    });
+    html = html.replace(/\_\_\_([\s\S]+?)\_\_\_/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<strong><em>${content}</em></strong>`;
+    });
+    html = html.replace(/(?<!\*)\*\*([^*]+?)\*\*(?!\*)/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<strong>${content}</strong>`;
+    });
+    html = html.replace(/(?<!_)__([^_]+?)__(?!_)/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<strong>${content}</strong>`;
+    });
+    html = html.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<em>${content}</em>`;
+    });
+    html = html.replace(/(?<!_)_([^_]+?)_(?!_)/g, (match, content: string) => {
+      if (!content || !content.trim()) return match;
+      return `<em>${content}</em>`;
+    });
     if (html !== editorRef.innerHTML) {
       editorRef.innerHTML = html;
     }

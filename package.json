@@ -17,6 +17,7 @@
     "jszip": "^3.10.1",
     "lz-string": "^1.5.0",
     "marked": "^17.0.1",
+    "mini-canvas-editor": "^0.3.2",
     "solid-js": "^1.9.10"
   },
   "devDependencies": {

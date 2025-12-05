@@ -71,6 +71,18 @@
   color: var(--bg-color);
 }
 
+.toolbarPowered {
+  margin-left: auto;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.toolbarPowered a {
+  color: var(--text-color);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
 .stats {
   font-size: 0.8rem;
   opacity: 0.7;
@@ -158,6 +170,8 @@
 .canvasWrapper {
   border: 1px solid var(--text-color);
   background: var(--bg-color);
+  flex: 1;
+  display: flex;
 }
 
 .canvasToolbar {
@@ -176,6 +190,102 @@
 
 .rangeInput {
   flex: 1;
+}
+
+.canvasWrapper > div {
+  flex: 1;
+}
+
+.projectsList {
+  background-color: var(--sidebar-color);
+  border-bottom: 1px solid var(--text-color);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.projectsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--text-color);
+}
+
+.projectsHeader h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.projectsHeader button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--text-color);
+}
+
+.projectItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  transition: background 0.15s;
+}
+
+.projectItem:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.projectItem.active {
+  background-color: var(--main-color);
+  color: var(--bg-color);
+}
+
+.projectItemName {
+  flex: 1;
+}
+
+.count {
+  font-size: 0.85rem;
+}
+
+.canvasWrapper .mce-toolbox,
+.canvasWrapper .mce-sidebar,
+.canvasWrapper .mce-panel,
+.canvasWrapper .mce-panel-tabs,
+.canvasWrapper .mce-panel-body {
+  background-color: var(--sidebar-color);
+  color: var(--text-color);
+  border-color: var(--text-color);
+  font-family: inherit;
+}
+
+.canvasWrapper .mce-toolbox-item,
+.canvasWrapper .mce-panel-tab,
+.canvasWrapper .mce-icon-button {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  border-radius: 2px;
+}
+
+.canvasWrapper .mce-toolbox-item.mce-selected,
+.canvasWrapper .mce-panel-tab.mce-active {
+  background-color: var(--main-color);
+  color: var(--bg-color);
+}
+
+.canvasWrapper .mce-workspace {
+  background-color: var(--bg-color);
+}
+
+.canvasWrapper input[type="number"],
+.canvasWrapper .mce-prop-number-input,
+.canvasWrapper .mce-layers-panel-item-label-input {
+  background-color: transparent;
+  color: var(--text-color);
+  border: 1px solid var(--text-color);
 }
 
 

@@ -1,5 +1,7 @@
 import { createSignal, createMemo, onMount } from 'solid-js';
 import type { Component } from 'solid-js';
+import { Editor } from 'mini-canvas-editor';
+import 'mini-canvas-editor/css/editor.css';
 import { db } from '../db';
 import type { Drawing } from '../db';
 import styles from './SimpleSuite.module.css';
@@ -369,68 +371,76 @@ const FilesPanel: Component = () => {
 };
 
 const DrawPanel: Component = () => {
-  const [color, setColor] = createSignal('#ffffff');
-  const [size, setSize] = createSignal(3);
   const [drawings, setDrawings] = createSignal<Drawing[]>([]);
-  const [, setCurrentId] = createSignal<number | null>(null);
-  let canvasRef: HTMLCanvasElement | undefined;
-  let ctx: CanvasRenderingContext2D | null = null;
-  let drawing = false;
+  const [currentId, setCurrentId] = createSignal<number | null>(null);
+  const [drawingName, setDrawingName] = createSignal('');
+  const [showDrawings, setShowDrawings] = createSignal(false);
+  let editorContainerRef: HTMLDivElement | undefined;
 
   const loadDrawings = async () => {
     const all = await db.drawings.orderBy('updatedAt').reverse().toArray();
     setDrawings(all);
   };
 
+  const initEditor = () => {
+    if (!editorContainerRef) return;
+    editorContainerRef.innerHTML = '';
+    const rect = editorContainerRef.getBoundingClientRect();
+    const width = rect.width || 600;
+    const height = rect.height || 400;
+    Editor.createBlank(editorContainerRef, width, height, {});
+  };
+
   onMount(() => {
     loadDrawings();
-    if (canvasRef) {
-      ctx = canvasRef.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, canvasRef.width, canvasRef.height);
-      }
-    }
+    initEditor();
   });
 
-  const getPos = (e: MouseEvent) => {
-    if (!canvasRef) return { x: 0, y: 0 };
-    const rect = canvasRef.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  };
-
-  const handleDown = (e: MouseEvent) => {
-    if (!ctx) return;
-    drawing = true;
-    const { x, y } = getPos(e);
-    ctx.strokeStyle = color();
-    ctx.lineWidth = size();
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const handleMove = (e: MouseEvent) => {
-    if (!drawing || !ctx) return;
-    const { x, y } = getPos(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const handleUp = () => {
-    drawing = false;
-  };
-
-  const clearCanvas = () => {
-    if (!ctx || !canvasRef) return;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, canvasRef.width, canvasRef.height);
+  const newDrawing = () => {
+    setCurrentId(null);
+    setDrawingName('');
+    initEditor();
+    setShowDrawings(false);
   };
 
   const saveDrawing = async () => {
-    if (!canvasRef) return;
-    const name = prompt('Drawing name:') || 'Sketch';
-    const dataUrl = canvasRef.toDataURL('image/png');
+    if (!editorContainerRef) return;
+    const canvas = editorContainerRef.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const existingId = currentId();
+    const name = drawingName() || prompt('Drawing name:') || 'Sketch';
+    const dataUrl = canvas.toDataURL('image/png');
+    setDrawingName(name);
+    if (existingId) {
+      await db.drawings.update(existingId, { name, dataUrl, updatedAt: new Date() });
+    } else {
+      const count = await db.drawings.count();
+      if (count >= 10) {
+        const oldest = await db.drawings.orderBy('updatedAt').first();
+        if (oldest?.id) await db.drawings.delete(oldest.id);
+      }
+      const id = await db.drawings.add({
+        name,
+        dataUrl,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      setCurrentId(id as number);
+    }
+    await loadDrawings();
+  };
+
+  const saveAsDrawing = async () => {
+    if (!editorContainerRef) return;
+    const canvas = editorContainerRef.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const name = prompt('Save as name:') || drawingName() || 'Sketch';
+    const dataUrl = canvas.toDataURL('image/png');
+    const count = await db.drawings.count();
+    if (count >= 10) {
+      const oldest = await db.drawings.orderBy('updatedAt').first();
+      if (oldest?.id) await db.drawings.delete(oldest.id);
+    }
     const id = await db.drawings.add({
       name,
       dataUrl,
@@ -438,64 +448,92 @@ const DrawPanel: Component = () => {
       updatedAt: new Date(),
     });
     setCurrentId(id as number);
+    setDrawingName(name);
     await loadDrawings();
   };
 
   const loadDrawing = (drawingItem: Drawing) => {
+    if (!editorContainerRef) return;
+    const canvas = editorContainerRef.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const img = new Image();
     img.onload = () => {
-      if (!ctx || !canvasRef) return;
-      ctx.clearRect(0, 0, canvasRef.width, canvasRef.height);
-      ctx.drawImage(img, 0, 0, canvasRef.width, canvasRef.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     };
     img.src = drawingItem.dataUrl;
     setCurrentId(drawingItem.id!);
+    setDrawingName(drawingItem.name);
   };
 
   return (
     <div class={styles.content}>
       <div class={styles.column}>
-        <div class={styles.canvasToolbar}>
-          <input
-            type="color"
-            class={styles.colorInput}
-            value={color()}
-            onInput={(e) => setColor((e.target as HTMLInputElement).value)}
-          />
-          <input
-            type="range"
-            min="1"
-            max="20"
-            value={size()}
-            class={styles.rangeInput}
-            onInput={(e) => setSize(parseInt((e.target as HTMLInputElement).value, 10) || 1)}
-          />
-          <button class={styles.toolButton} onClick={clearCanvas}>
-            Clear
+        <div class={styles.toolbar}>
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={newDrawing}
+            title="New"
+          >
+            <span class="material-symbols-outlined">add</span>
           </button>
-          <button class={styles.toolButton} onClick={saveDrawing}>
-            Save
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={() => setShowDrawings(!showDrawings())}
+            title="Drawings"
+          >
+            <span class="material-symbols-outlined">folder</span>
+            <span class={styles.count}>({drawings().length}/10)</span>
           </button>
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={saveDrawing}
+            title="Save"
+          >
+            <span class="material-symbols-outlined">save</span>
+          </button>
+          <button
+            class={styles.toolButton}
+            type="button"
+            onClick={saveAsDrawing}
+            title="Save As"
+          >
+            <span class="material-symbols-outlined">save_as</span>
+          </button>
+          <span class={styles.toolbarPowered}>
+            Powered by{' '}
+            <a
+              href="https://github.com/nocode-js/mini-canvas-editor"
+              target="_blank"
+              rel="noreferrer"
+            >
+              mini-canvas-editor
+            </a>
+          </span>
         </div>
-        <div class={styles.canvasWrapper}>
-          <canvas
-            ref={canvasRef}
-            width={600}
-            height={400}
-            onMouseDown={handleDown}
-            onMouseMove={handleMove}
-            onMouseUp={handleUp}
-            onMouseLeave={handleUp}
-          />
-        </div>
-      </div>
-      <div class={styles.column}>
-        <div class={styles.fileList}>
-          {drawings().map((d) => (
-            <div onClick={() => loadDrawing(d)}>
-              {d.name}
+        {showDrawings() && (
+          <div class={styles.projectsList}>
+            <div class={styles.projectsHeader}>
+              <h3>Drawings ({drawings().length}/10)</h3>
+              <button type="button" onClick={() => setShowDrawings(false)}>✕</button>
             </div>
-          ))}
+            {drawings().map((d) => (
+              <div
+                class={`${styles.projectItem} ${currentId() === d.id ? styles.active : ''}`}
+                onClick={() => loadDrawing(d)}
+              >
+                <span class={styles.projectItemName}>{d.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div class={styles.canvasWrapper}>
+          <div ref={editorContainerRef} />
         </div>
       </div>
     </div>
