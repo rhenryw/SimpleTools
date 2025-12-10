@@ -30,6 +30,13 @@ const metadataStringKeys: (keyof Omit<Metadata, 'source'>)[] = [
   'accessed',
 ];
 
+const metadataHasFields = (data: Partial<Metadata> | null | undefined, fields: (keyof Metadata)[]) => {
+  if (!data) return false;
+  return fields.every((field) => Boolean((data[field] || '').toString().trim()));
+};
+
+const aiPreferredFields: (keyof Metadata)[] = ['author', 'title', 'site', 'publisher', 'year', 'url'];
+
 interface CitationResult {
   text: string;
   html: string;
@@ -271,7 +278,7 @@ const promoteOriginFields = (data: Metadata) => {
     next.site = hostname;
   }
 
-  if (next.publisher && ((publisherIsHostname && next.site) || next.publisher.toLowerCase() === (next.site || '').toLowerCase())) {
+  if (next.publisher && publisherIsHostname) {
     next.publisher = '';
   }
 
@@ -504,7 +511,7 @@ const buildMetadataPrompt = (context: string, url: string) =>
   [
     'You are a meticulous citation metadata extractor.',
     'Return ONLY strict JSON with keys "title","author","year","publisher","site","accessed". Empty or missing values must be null.',
-    'Never include prose, explanations, or markdown fences—respond with JSON only.',
+    'Never include prose, explanations, or markdown fences—respond with JSON only. Try to assume and use deep context for finding value.',
     `Context: ${context}`,
     `URL: ${url}`,
   ].join('\n');
@@ -533,7 +540,7 @@ const fetchReadableMarkdown = async (targetUrl: string) => {
 const fetchMetadataViaAi = async (
   targetUrl: string,
   onProgress?: (message: string) => void,
-  options?: { requireAuthor?: boolean },
+  options?: { requireAuthor?: boolean; requiredFields?: (keyof Metadata)[] },
 ): Promise<{ meta: Partial<Metadata> | null; error?: string }> => {
   const markdown = await fetchReadableMarkdown(targetUrl);
   if (!markdown) {
@@ -546,14 +553,23 @@ const fetchMetadataViaAi = async (
 
   let metaResult: Partial<Metadata> | null = null;
   let lastError = '';
-  for (let i = 0; i < promptChunks.length; i += 1) {
+  const requiredFields = options?.requiredFields?.length
+    ? options.requiredFields
+    : (['author', 'title', 'site', 'publisher'] as (keyof Metadata)[]);
+
+  const needsMoreFields = () => {
+    if (!requiredFields.length) return !metaResult;
+    return !metadataHasFields(metaResult, requiredFields);
+  };
+
+  for (let i = 0; i < promptChunks.length && needsMoreFields(); i += 1) {
     const chunk = promptChunks[i];
     const chunkLabel = promptChunks.length > 1 ? ` (${i + 1}/${promptChunks.length})` : '';
     onProgress?.(`Extracting metadata with SimpleCite…${chunkLabel}`);
     try {
       const prompt = buildMetadataPrompt(chunk, targetUrl);
       const llm = await fetch(
-        `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-fast`,
+        `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`,
         {
           headers: { Accept: 'text/plain' },
         },
@@ -566,9 +582,6 @@ const fetchMetadataViaAi = async (
       const parsed = normalizeMetadata(parseMetadataPayload(raw));
       if (Object.keys(parsed).length) {
         metaResult = mergeMetadataValues(metaResult, parsed);
-        if (metadataIsSufficient(metaResult, { requireAuthor: options?.requireAuthor })) {
-          break;
-        }
         continue;
       }
       lastError = 'SimpleCite could not understand the response. Try again or switch to manual.';
@@ -914,7 +927,7 @@ const SimpleCite: Component = () => {
       const aiResult = await fetchMetadataViaAi(
         metaPayload.url,
         (message) => setStatus(message),
-        { requireAuthor: true },
+        { requireAuthor: true, requiredFields: aiPreferredFields },
       );
       adoptMetadata(aiResult.meta);
 
@@ -1020,7 +1033,7 @@ const SimpleCite: Component = () => {
       const aiResult = await fetchMetadataViaAi(
         targetUrl,
         (message) => setStatus(message),
-        { requireAuthor: true },
+        { requireAuthor: true, requiredFields: aiPreferredFields },
       );
       adoptMetadata(aiResult.meta);
 
@@ -1039,12 +1052,8 @@ const SimpleCite: Component = () => {
         setStatus('Could not auto-extract. Try the manual option like on MyBib.');
       }
       const fallbackMeta: Partial<Metadata> = metaResult ?? {};
-      setMeta({
-        ...emptyMeta,
-        ...fallbackMeta,
-        url: fallbackMeta.url || targetUrl,
-        source: 'manual',
-      });
+      const finalizedFallback = mergeMetadataWithDefaults(fallbackMeta, targetUrl);
+      setMeta({ ...finalizedFallback, source: 'manual' });
       setMetaSource('manual');
       setEngine('manual');
       return;
