@@ -7,6 +7,7 @@ import styles from './SimpleCite.module.css';
 type Guideline = 'apa7' | 'mla9' | 'ieee' | 'chicago17';
 type CiteEngine = 'simplecite' | 'manual';
 type LoadingStage = 'idle' | 'metadata' | 'metadataProxy' | 'ai';
+type MetadataSource = 'manual' | 'simplecite' | 'simplecite-ai';
 
 interface Metadata {
   title: string;
@@ -16,7 +17,18 @@ interface Metadata {
   publisher: string;
   url: string;
   accessed: string;
+  source?: MetadataSource;
 }
+
+const metadataStringKeys: (keyof Omit<Metadata, 'source'>)[] = [
+  'title',
+  'author',
+  'year',
+  'publisher',
+  'site',
+  'url',
+  'accessed',
+];
 
 interface CitationResult {
   text: string;
@@ -141,11 +153,11 @@ const POLLINATIONS_CHUNK_SIZE = 4999;
 const splitContextIntoChunks = (value: string, size = POLLINATIONS_CHUNK_SIZE) => {
   const sanitized = sanitizeContext(value);
   if (!sanitized) return [];
-  const chunks: string[] = [];
-  for (let index = 0; index < sanitized.length; index += size) {
-    chunks.push(sanitized.slice(index, index + size));
-  }
-  return chunks.length ? chunks : [];
+  if (sanitized.length <= size) return [sanitized];
+  const first = sanitized.slice(0, size);
+  const last = sanitized.slice(-size);
+  if (first === last) return [first];
+  return [first, last];
 };
 
 const tryParseJson = (payload: string) => {
@@ -176,16 +188,14 @@ const parseMetadataPayload = (payload: string): Partial<Metadata> | null => {
 const normalizeMetadata = (data: Partial<Metadata> | null | undefined): Partial<Metadata> => {
   if (!data) return {};
   const cleaned: Partial<Metadata> = {};
-  (['title', 'author', 'year', 'publisher', 'site', 'url', 'accessed'] as (keyof Metadata)[]).forEach(
-    (key) => {
-      const value = data[key];
-      if (typeof value === 'string') {
-        cleaned[key] = value.trim();
-      } else if (value != null) {
-        cleaned[key] = String(value).trim();
-      }
-    },
-  );
+  metadataStringKeys.forEach((key) => {
+    const value = data[key];
+    if (typeof value === 'string') {
+      cleaned[key] = value.trim();
+    } else if (value != null) {
+      cleaned[key] = String(value).trim();
+    }
+  });
   return cleaned;
 };
 
@@ -200,12 +210,15 @@ const mergeMetadataValues = (
 ): Partial<Metadata> | null => {
   if (!incoming) return current;
   const merged: Partial<Metadata> = { ...(current || {}) };
-  (Object.keys(incoming) as (keyof Metadata)[]).forEach((key) => {
+  metadataStringKeys.forEach((key) => {
     const value = incoming[key];
     if (typeof value === 'string' && value.trim()) {
       merged[key] = value.trim();
     }
   });
+  if (incoming.source) {
+    merged.source = incoming.source;
+  }
   return merged;
 };
 
@@ -231,6 +244,54 @@ const hostnameFromUrl = (value: string) => {
     return '';
   }
 };
+
+const domainPattern = /^[a-z0-9.-]+\.[a-z]{2,}$/i;
+
+const looksLikeHostname = (value?: string, url?: string) => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  if (domainPattern.test(normalized)) return true;
+  if (url) {
+    const host = hostnameFromUrl(url).toLowerCase();
+    if (host && host === normalized) return true;
+  }
+  return false;
+};
+
+const promoteOriginFields = (data: Metadata) => {
+  const next = { ...data };
+  const hostname = next.url ? hostnameFromUrl(next.url) : '';
+  const siteIsHostname = looksLikeHostname(next.site, next.url);
+  const publisherIsHostname = looksLikeHostname(next.publisher, next.url);
+
+  if ((!next.site || siteIsHostname) && next.publisher) {
+    next.site = next.publisher;
+  } else if (!next.site && hostname) {
+    next.site = hostname;
+  }
+
+  if (next.publisher && ((publisherIsHostname && next.site) || next.publisher.toLowerCase() === (next.site || '').toLowerCase())) {
+    next.publisher = '';
+  }
+
+  return next;
+};
+
+const scrubOrganizationalAuthor = (data: Metadata) => {
+  if (!data.author) return data;
+  const conflicts = [data.site, data.publisher];
+  if (data.url) conflicts.push(hostnameFromUrl(data.url));
+  const normalized = data.author.trim().toLowerCase();
+  const normalizedConflicts = conflicts.filter((value): value is string => Boolean(value));
+  const clash = normalizedConflicts.some((value) => value.trim().toLowerCase() === normalized);
+  if (clash) {
+    return { ...data, author: '' };
+  }
+  return data;
+};
+
+const finalizeMetadata = (data: Metadata) => scrubOrganizationalAuthor(promoteOriginFields(data));
 
 type JsonLdEntry = Record<string, unknown>;
 
@@ -448,21 +509,96 @@ const buildMetadataPrompt = (context: string, url: string) =>
     `URL: ${url}`,
   ].join('\n');
 
+const fetchReadableMarkdown = async (targetUrl: string) => {
+  const encodedTarget = encodeURIComponent(targetUrl);
+  const jinaUrls = [
+    `https://r.jina.ai/${targetUrl}`,
+    `https://r.jina.ai/https://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
+    `https://r.jina.ai/http://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
+  ];
+  for (const jurl of jinaUrls) {
+    try {
+      const response = await fetch(jurl);
+      if (response.ok) {
+        const markdown = await response.text();
+        if (markdown) return markdown;
+      }
+    } catch {
+      // Ignore and try the next mirror
+    }
+  }
+  return null;
+};
+
+const fetchMetadataViaAi = async (
+  targetUrl: string,
+  onProgress?: (message: string) => void,
+  options?: { requireAuthor?: boolean },
+): Promise<{ meta: Partial<Metadata> | null; error?: string }> => {
+  const markdown = await fetchReadableMarkdown(targetUrl);
+  if (!markdown) {
+    return { meta: null, error: 'Could not load a readable version of the page. Try the manual option.' };
+  }
+  const promptChunks = splitContextIntoChunks(markdown);
+  if (!promptChunks.length) {
+    return { meta: null, error: 'Could not find readable content. Try the manual option.' };
+  }
+
+  let metaResult: Partial<Metadata> | null = null;
+  let lastError = '';
+  for (let i = 0; i < promptChunks.length; i += 1) {
+    const chunk = promptChunks[i];
+    const chunkLabel = promptChunks.length > 1 ? ` (${i + 1}/${promptChunks.length})` : '';
+    onProgress?.(`Extracting metadata with SimpleCite…${chunkLabel}`);
+    try {
+      const prompt = buildMetadataPrompt(chunk, targetUrl);
+      const llm = await fetch(
+        `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-fast`,
+        {
+          headers: { Accept: 'text/plain' },
+        },
+      );
+      if (!llm.ok) {
+        lastError = 'Pollinations is unavailable right now. Try again in a bit.';
+        continue;
+      }
+      const raw = await llm.text();
+      const parsed = normalizeMetadata(parseMetadataPayload(raw));
+      if (Object.keys(parsed).length) {
+        metaResult = mergeMetadataValues(metaResult, parsed);
+        if (metadataIsSufficient(metaResult, { requireAuthor: options?.requireAuthor })) {
+          break;
+        }
+        continue;
+      }
+      lastError = 'SimpleCite could not understand the response. Try again or switch to manual.';
+    } catch (error) {
+      console.error('SimpleCite metadata fetch failed', error);
+      lastError = 'Could not reach the metadata service.';
+    }
+  }
+
+  if (metaResult) {
+    return { meta: metaResult, error: lastError || undefined };
+  }
+
+  return { meta: null, error: lastError || 'Could not find readable content. Try the manual option.' };
+};
+
 const mergeMetadataWithDefaults = (data: Partial<Metadata>, targetUrl: string): Metadata => {
-  const now = new Date();
-  const accessed = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate(),
-  ).padStart(2, '0')}`;
-  return {
+  const merged: Metadata = {
     ...emptyMeta,
     ...data,
     url: data.url || targetUrl,
-    year: data.year || now.getFullYear().toString(),
-    accessed: data.accessed || accessed,
+    year: data.year || '',
+    accessed: data.accessed || '',
   };
+  return finalizeMetadata(merged);
 };
 
 const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const ensureTrailingPeriod = (value: string) => (value.trim().endsWith('.') ? value.trim() : `${value.trim()}.`);
 
 const joinCitationParts = (parts: string[], fallback = '') => {
   const combined = normalizeWhitespace(parts.filter(Boolean).join(' ').trim());
@@ -562,7 +698,7 @@ const formatCitation = (meta: Metadata, guideline: Guideline): CitationResult =>
 
   if (guideline === 'apa7') {
     const authorSegment = formatAuthorsAPA(authors);
-    if (authorSegment) push(`${authorSegment}.`);
+    if (authorSegment) push(ensureTrailingPeriod(authorSegment));
     push(published ? `(${published}).` : '(n.d.).');
     push(
       `${fallbackTitle}.`,
@@ -576,7 +712,7 @@ const formatCitation = (meta: Metadata, guideline: Guideline): CitationResult =>
         const html = `Retrieved ${escapeHtml(accessed)} from ${linkHtml(meta.url)}.`;
         push(text, html);
       } else {
-        push(`Retrieved from ${meta.url}.`, `Retrieved from ${linkHtml(meta.url)}.`);
+        push(meta.url, linkHtml(meta.url));
       }
     }
     return buildCitationResult(textParts, htmlParts, fallbackText, fallbackHtml);
@@ -606,7 +742,7 @@ const formatCitation = (meta: Metadata, guideline: Guideline): CitationResult =>
       `"${fallbackTitle},"`,
       fallbackTitle ? `&ldquo;${escapeHtml(fallbackTitle)},&rdquo;` : undefined,
     );
-    if (meta.site) push(`${meta.site},`);
+    if (meta.site) push(`${meta.site},`, `<i>${escapeHtml(meta.site)}</i>,`);
     if (published) push(`${published}.`);
     push('[Online].');
     if (meta.url) push(`Available: ${meta.url}.`, `Available: ${linkHtml(meta.url)}.`);
@@ -623,7 +759,7 @@ const formatCitation = (meta: Metadata, guideline: Guideline): CitationResult =>
   if (meta.site) {
     push(`${meta.site},`, `<i>${escapeHtml(meta.site)}</i>,`);
   }
-  if (published) push(`${published},`);
+  if (published) push(`${published}.`);
   if (meta.publisher) push(`${meta.publisher},`);
   if (meta.url) {
     const urlSegment = `${meta.url}`;
@@ -640,12 +776,20 @@ const SimpleCite: Component = () => {
   const [engine, setEngine] = createSignal<CiteEngine>('simplecite');
   const [guideline, setGuideline] = createSignal<Guideline>('apa7');
   const [url, setUrl] = createSignal('');
-  const [meta, setMeta] = createSignal<Metadata>({ ...emptyMeta });
+  const [meta, setMeta] = createSignal<Metadata>({ ...emptyMeta, source: 'simplecite' });
   const [status, setStatus] = createSignal('');
   const [loading, setLoading] = createSignal(false);
   const [loadingStage, setLoadingStage] = createSignal<LoadingStage>('idle');
   const [citations, setCitations] = createSignal<Citation[]>([]);
   const [modalOpen, setModalOpen] = createSignal(false);
+  const [metaSource, setMetaSource] = createSignal<MetadataSource>('simplecite');
+  const [editingCitationId, setEditingCitationId] = createSignal<number | null>(null);
+  const [aiRedoLoadingId, setAiRedoLoadingId] = createSignal<number | null>(null);
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingCitationId(null);
+  };
 
   const loadingLabel = () => {
     if (!loading()) return 'Fetch metadata';
@@ -677,14 +821,17 @@ const SimpleCite: Component = () => {
 
   const handleEngineChange = (next: CiteEngine) => {
     setEngine(next);
+    setMetaSource(next === 'manual' ? 'manual' : 'simplecite');
     setStatus('');
   };
 
   const startNewCitation = () => {
-    setMeta({ ...emptyMeta });
+    setMeta({ ...emptyMeta, source: 'simplecite' });
     setUrl('');
     setGuideline('apa7');
     setEngine('simplecite');
+    setMetaSource('simplecite');
+    setEditingCitationId(null);
     setStatus('');
     setModalOpen(true);
   };
@@ -709,6 +856,95 @@ const SimpleCite: Component = () => {
     }
   };
 
+  const parseCitationMeta = (payload?: string): (Metadata & { source?: MetadataSource }) | null => {
+    if (!payload) return null;
+    try {
+      return JSON.parse(payload) as Metadata & { source?: MetadataSource };
+    } catch {
+      return null;
+    }
+  };
+
+  const decodeGuideline = (value: string): Guideline => {
+    const match = guidelineOptions.find((option) => option.value === value);
+    return (match?.value as Guideline) || 'apa7';
+  };
+
+  const citationSupportsAiRedo = (citation: Citation) => {
+    const metaPayload = parseCitationMeta(citation.meta);
+    if (!metaPayload?.url) return false;
+    const source = metaPayload.source || 'simplecite';
+    return source !== 'manual';
+  };
+
+  const openCitationForEdit = (citation: Citation) => {
+    const metaPayload = parseCitationMeta(citation.meta);
+    if (metaPayload) {
+      const inferredSource = metaPayload.source || (metaPayload.url ? 'simplecite' : 'manual');
+      setMeta({ ...emptyMeta, ...metaPayload, source: inferredSource });
+      setUrl(metaPayload.url || '');
+      setMetaSource(inferredSource);
+      setEngine(inferredSource === 'manual' ? 'manual' : 'simplecite');
+    } else {
+      setMeta({ ...emptyMeta, source: 'manual' });
+      setUrl('');
+      setMetaSource('manual');
+      setEngine('manual');
+    }
+    setGuideline(decodeGuideline(citation.style));
+    setEditingCitationId(citation.id ?? null);
+    setStatus('Loaded citation into the builder. Make edits and hit Save.');
+    setModalOpen(true);
+  };
+
+  const handleRedoWithAi = async (citation: Citation) => {
+    const metaPayload = parseCitationMeta(citation.meta);
+    if (!metaPayload?.url || !citation.id) {
+      setStatus('Need a saved URL to redo this citation with AI.');
+      return;
+    }
+    setAiRedoLoadingId(citation.id);
+    setStatus('Forcing SimpleCite AI to refresh metadata…');
+    try {
+      let metaResult: Partial<Metadata> | null = { ...metaPayload };
+      const adoptMetadata = (candidate: Partial<Metadata> | null) => {
+        metaResult = mergeMetadataValues(metaResult, candidate);
+      };
+
+      const aiResult = await fetchMetadataViaAi(
+        metaPayload.url,
+        (message) => setStatus(message),
+        { requireAuthor: true },
+      );
+      adoptMetadata(aiResult.meta);
+
+      if (!metadataIsSufficient(metaResult, { requireAuthor: true })) {
+        setStatus(aiResult.error || 'SimpleCite AI could not refresh this citation.');
+        return;
+      }
+
+      const finalized = mergeMetadataWithDefaults(metaResult || {}, metaPayload.url);
+      const enhancedMeta: Metadata = { ...finalized, source: 'simplecite-ai' };
+      const refreshedCitation = formatCitation(enhancedMeta, decodeGuideline(citation.style));
+      await db.citations.update(citation.id, {
+        text: refreshedCitation.text,
+        meta: JSON.stringify(enhancedMeta),
+        updatedAt: new Date(),
+      });
+      await loadCitations();
+      if (editingCitationId() === citation.id) {
+        setMeta(enhancedMeta);
+        setMetaSource('simplecite-ai');
+      }
+      setStatus('Citation refreshed with SimpleCite AI.');
+    } catch (error) {
+      console.error('SimpleCite AI redo failed', error);
+      setStatus('SimpleCite AI ran into a problem. Try again in a bit.');
+    } finally {
+      setAiRedoLoadingId(null);
+    }
+  };
+
   const runSimpleCite = async () => {
     const value = url().trim();
     if (!value) {
@@ -729,19 +965,30 @@ const SimpleCite: Component = () => {
         metaResult = mergeMetadataValues(metaResult, candidate);
       };
 
-      const finishIfReady = (message: string, options?: { requireAuthor?: boolean }) => {
-        if (!metadataIsSufficient(metaResult, options)) return false;
+      const finishIfReady = (
+        message: string,
+        options?: { requireAuthor?: boolean; source?: MetadataSource },
+      ) => {
+        const { requireAuthor, source } = options || {};
+        if (!metadataIsSufficient(metaResult, { requireAuthor })) return false;
         const merged = mergeMetadataWithDefaults(metaResult || {}, targetUrl);
-        setMeta(merged);
+        const finalMeta: Metadata = { ...merged, source: source || 'simplecite' };
+        setMeta(finalMeta);
         setStatus(message);
         setEngine('simplecite');
+        setMetaSource(source || 'simplecite');
         return true;
       };
 
       const directAttempt = await gatherMetadataFromSource(targetUrl);
       adoptMetadata(directAttempt.meta);
 
-      if (finishIfReady('Metadata loaded. Double-check the fields before saving.', { requireAuthor: true })) {
+      if (
+        finishIfReady('Metadata loaded. Double-check the fields before saving.', {
+          requireAuthor: true,
+          source: 'simplecite',
+        })
+      ) {
         return;
       }
 
@@ -757,7 +1004,12 @@ const SimpleCite: Component = () => {
       const proxyAttempt = await gatherMetadataFromSource(targetUrl, true);
       adoptMetadata(proxyAttempt.meta);
 
-      if (finishIfReady('Metadata loaded. Double-check the fields before saving.', { requireAuthor: true })) {
+      if (
+        finishIfReady('Metadata loaded. Double-check the fields before saving.', {
+          requireAuthor: true,
+          source: 'simplecite',
+        })
+      ) {
         return;
       }
 
@@ -765,97 +1017,35 @@ const SimpleCite: Component = () => {
       setStatus(
         'Metadata still missing key details—asking AI… Pulling a readable version of the page…',
       );
-      let markdown: string | null = null;
-      const encodedTarget = encodeURIComponent(targetUrl);
-      const jinaUrls = [
-        `https://r.jina.ai/${targetUrl}`,
-        `https://r.jina.ai/https://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
-        `https://r.jina.ai/http://anything.rhenrywarren.workers.dev/?url=${encodedTarget}`,
-      ];
-
-      for (const jurl of jinaUrls) {
-        try {
-          const jina = await fetch(jurl);
-          if (jina.ok) {
-            const md = await jina.text();
-            if (md) {
-              markdown = md;
-              break;
-            }
-          }
-        } catch {
-          // swallow fetch errors and try next endpoint
-        }
-      }
-
-      if (markdown) {
-        const promptChunks = splitContextIntoChunks(markdown);
-        if (!promptChunks.length) {
-          setStatus('Could not find readable content. Try the manual option.');
-        } else {
-          let chunkResolved = false;
-          let lastPollinationsError = '';
-          for (let i = 0; i < promptChunks.length && !chunkResolved; i += 1) {
-            const chunk = promptChunks[i];
-            const chunkLabel =
-              promptChunks.length > 1 ? ` (${i + 1}/${promptChunks.length})` : '';
-            setStatus(`Extracting metadata with SimpleCite…${chunkLabel}`);
-            try {
-              const prompt = buildMetadataPrompt(chunk, targetUrl);
-              const llm = await fetch(
-                `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-fast`,
-                {
-                  headers: { Accept: 'text/plain' },
-                },
-              );
-              if (!llm.ok) {
-                lastPollinationsError =
-                  'Pollinations is unavailable right now. Try again in a bit.';
-                continue;
-              }
-              const raw = await llm.text();
-              const parsed = normalizeMetadata(parseMetadataPayload(raw));
-              if (Object.keys(parsed).length) {
-                adoptMetadata(parsed);
-                if (metadataIsSufficient(metaResult)) {
-                  chunkResolved = true;
-                  break;
-                }
-              } else {
-                lastPollinationsError =
-                  'SimpleCite could not understand the response. Try again or switch to manual.';
-              }
-            } catch (error) {
-              console.error('SimpleCite metadata fetch failed', error);
-              lastPollinationsError = 'Could not reach the metadata service.';
-            }
-          }
-
-          if (chunkResolved) {
-            if (finishIfReady('Metadata loaded via SimpleCite AI. Double-check the fields before saving.')) {
-              return;
-            }
-          } else if (lastPollinationsError) {
-            setStatus(lastPollinationsError);
-          }
-        }
-      } else {
-        setStatus('Could not load a readable version of the page. Try the manual option.');
-      }
+      const aiResult = await fetchMetadataViaAi(
+        targetUrl,
+        (message) => setStatus(message),
+        { requireAuthor: true },
+      );
+      adoptMetadata(aiResult.meta);
 
       if (
-        finishIfReady('Metadata loaded via SimpleCite AI. Double-check the fields before saving.')
+        finishIfReady('Metadata loaded via SimpleCite AI. Double-check the fields before saving.', {
+          source: 'simplecite-ai',
+          requireAuthor: true,
+        })
       ) {
         return;
       }
 
-      setStatus('Could not auto-extract. Try the manual option like on MyBib.');
+      if (aiResult.error) {
+        setStatus(aiResult.error);
+      } else {
+        setStatus('Could not auto-extract. Try the manual option like on MyBib.');
+      }
       const fallbackMeta: Partial<Metadata> = metaResult ?? {};
       setMeta({
         ...emptyMeta,
         ...fallbackMeta,
         url: fallbackMeta.url || targetUrl,
+        source: 'manual',
       });
+      setMetaSource('manual');
       setEngine('manual');
       return;
     } finally {
@@ -872,16 +1062,28 @@ const SimpleCite: Component = () => {
       setStatus('Fill in at least a title or URL before saving.');
       return;
     }
-    await db.citations.add({
-      style: guideline(),
-      text: cite.text,
-      meta: JSON.stringify(meta()),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    const payload = JSON.stringify({ ...meta(), source: metaSource() });
+    const now = new Date();
+    const existingId = editingCitationId();
+    if (existingId) {
+      await db.citations.update(existingId, {
+        style: guideline(),
+        text: cite.text,
+        meta: payload,
+        updatedAt: now,
+      });
+    } else {
+      await db.citations.add({
+        style: guideline(),
+        text: cite.text,
+        meta: payload,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
     await loadCitations();
-    setModalOpen(false);
-    setStatus('Citation saved—use Copy whenever you need it.');
+    closeModal();
+    setStatus(existingId ? 'Citation updated and ready to copy.' : 'Citation saved—use Copy whenever you need it.');
   };
 
   const selectedGuideline = () =>
@@ -954,16 +1156,43 @@ const SimpleCite: Component = () => {
                       <div class={styles.listStyle}>{guidelineLabel(c.style)}</div>
                       <div class={styles.listText}>{c.text}</div>
                     </div>
-                    <button
-                      class={styles.copyButton}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        copyCitationPayload(c.text);
-                      }}
-                    >
-                      <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
-                      <span>Copy</span>
-                    </button>
+                    <div class={styles.listActions}>
+                      <button
+                        class={styles.copyButton}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          copyCitationPayload(c.text);
+                        }}
+                      >
+                        <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
+                        <span>Copy</span>
+                      </button>
+                      <button
+                        class={styles.iconButton}
+                        title="Edit in builder"
+                        aria-label="Edit in builder"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openCitationForEdit(c);
+                        }}
+                      >
+                        <span class="material-symbols-outlined" aria-hidden="true">edit</span>
+                      </button>
+                      <Show when={citationSupportsAiRedo(c)}>
+                        <button
+                          class={styles.iconButton}
+                          title="Redo With AI"
+                          aria-label="Redo With AI"
+                          disabled={aiRedoLoadingId() === (c.id ?? -1)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRedoWithAi(c);
+                          }}
+                        >
+                          <span class="material-symbols-outlined" aria-hidden="true">{aiRedoLoadingId() === (c.id ?? -1) ? 'progress_activity' : 'wand_stars'}</span>
+                        </button>
+                      </Show>
+                    </div>
                   </div>
                 )}
               </For>
@@ -997,14 +1226,14 @@ const SimpleCite: Component = () => {
         </div>
       </div>
       {modalOpen() && (
-        <div class={styles.overlay} onClick={() => setModalOpen(false)}>
+        <div class={styles.overlay} onClick={closeModal}>
           <div class={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div class={styles.modalHeader}>
               <div>
                 <div class={styles.modalTitle}>Create a citation</div>
                 <div class={styles.helperText}>Pick your citing engine and guideline.</div>
               </div>
-              <button class={styles.closeButton} onClick={() => setModalOpen(false)}>
+              <button class={styles.closeButton} onClick={closeModal}>
                   <span class="material-symbols-outlined" aria-hidden="true">close</span>
               </button>
             </div>
@@ -1179,7 +1408,7 @@ const SimpleCite: Component = () => {
               </div>
             </div>
             <div class={styles.modalFooter}>
-              <button class={styles.button} onClick={() => setModalOpen(false)}>
+              <button class={styles.button} onClick={closeModal}>
                 <span class="material-symbols-outlined" aria-hidden="true">close</span>
                 <span>Cancel</span>
               </button>
@@ -1196,5 +1425,6 @@ const SimpleCite: Component = () => {
 };
 
 export default SimpleCite;
+
 
 

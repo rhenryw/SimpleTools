@@ -188,6 +188,35 @@
   box-shadow: 2px 2px 0 0 var(--sidebar-color);
 }
 
+.listActions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--text-color);
+  background: var(--bg-color);
+  box-shadow: 2px 2px 0 0 var(--sidebar-color);
+  cursor: pointer;
+}
+
+.iconButton .material-symbols-outlined {
+  font-size: 1.1rem;
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .listEmpty {
   border: 2px dashed var(--text-color);
   border-radius: 4px;
