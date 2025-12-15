@@ -156,6 +156,8 @@ const sanitizeContext = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 const POLLINATIONS_CHUNK_SIZE = 4999;
+const AI_METADATA_FALLBACK_KEYWORD = 'SIMPLECITE_METADATA_ONLY'; // Keyword used to signal we should keep existing metadata
+const DOI_PATTERN = /10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i;
 
 const splitContextIntoChunks = (value: string, size = POLLINATIONS_CHUNK_SIZE) => {
   const sanitized = sanitizeContext(value);
@@ -165,6 +167,116 @@ const splitContextIntoChunks = (value: string, size = POLLINATIONS_CHUNK_SIZE) =
   const last = sanitized.slice(-size);
   if (first === last) return [first];
   return [first, last];
+};
+
+const extractDoi = (value?: string) => {
+  if (!value) return null;
+  const match = value.match(DOI_PATTERN);
+  if (!match) return null;
+  return match[0]
+    .replace(/^doi:\s*/i, '')
+    .replace(/\s+$/g, '')
+    .toLowerCase();
+};
+
+type CrossrefDateParts = { 'date-parts'?: number[][] } | undefined;
+
+interface CrossrefMessage {
+  title?: unknown;
+  author?: CrossrefAuthor[];
+  publisher?: string;
+  URL?: string;
+  resource?: { primary?: { URL?: string } };
+  ['container-title']?: unknown;
+  ['short-container-title']?: unknown;
+  ['published-online']?: CrossrefDateParts;
+  ['published-print']?: CrossrefDateParts;
+  published?: CrossrefDateParts;
+  issued?: CrossrefDateParts;
+}
+
+const datePartsToIso = (parts?: CrossrefDateParts) => {
+  const values = parts?.['date-parts'];
+  if (!values?.length || !values[0]?.length) return '';
+  const [year, month, day] = values[0];
+  if (!year) return '';
+  if (!month) return `${year}`;
+  const monthString = `${month}`.padStart(2, '0');
+  if (!day) return `${year}-${monthString}`;
+  const dayString = `${day}`.padStart(2, '0');
+  return `${year}-${monthString}-${dayString}`;
+};
+
+interface CrossrefAuthor {
+  given?: string;
+  family?: string;
+  name?: string;
+}
+
+const formatCrossrefAuthors = (authors?: CrossrefAuthor[]) => {
+  if (!authors?.length) return '';
+  return authors
+    .map((author) => {
+      const composed = `${author.given ? `${author.given} ` : ''}${author.family || ''}`.trim();
+      return composed || author.name || '';
+    })
+    .filter(Boolean)
+    .join('; ');
+};
+
+const fetchCrossrefMetadata = async (doi: string): Promise<Partial<Metadata> | null> => {
+  const endpoint = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
+  try {
+    const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const message = payload?.message as CrossrefMessage | undefined;
+    if (!message) return null;
+
+    const titleCandidates: unknown = message.title;
+    const title = Array.isArray(titleCandidates)
+      ? (titleCandidates.find((entry) => typeof entry === 'string' && entry.trim()) as string | undefined)
+      : typeof titleCandidates === 'string'
+          ? titleCandidates
+          : '';
+
+    const containerCandidates: unknown = message['container-title'] || message['short-container-title'];
+    const container = Array.isArray(containerCandidates)
+      ? (containerCandidates.find((entry) => typeof entry === 'string' && entry.trim()) as string | undefined)
+      : typeof containerCandidates === 'string'
+          ? containerCandidates
+          : '';
+
+    const dateString =
+      datePartsToIso(message['published-online'] as CrossrefDateParts) ||
+      datePartsToIso(message['published-print'] as CrossrefDateParts) ||
+      datePartsToIso(message.published as CrossrefDateParts) ||
+      datePartsToIso(message.issued as CrossrefDateParts);
+
+    const primaryUrlCandidate = message.resource?.primary?.URL;
+    const url: string =
+      (typeof primaryUrlCandidate === 'string' && primaryUrlCandidate.trim())
+        ? primaryUrlCandidate.trim()
+        : typeof message.URL === 'string' && (message.URL as string).trim()
+            ? (message.URL as string).trim()
+            : `https://doi.org/${doi}`;
+
+    const meta: Partial<Metadata> = {
+      title: title || '',
+      author: formatCrossrefAuthors(message.author as CrossrefAuthor[] | undefined),
+      publisher: typeof message.publisher === 'string' ? (message.publisher as string) : '',
+      site: container || hostnameFromUrl(url),
+      year: dateString,
+      url,
+      accessed: '',
+    };
+
+    const normalized = normalizeMetadata(meta);
+    return { ...normalized, source: 'simplecite' };
+  } catch (error) {
+    console.warn('Crossref metadata fetch failed', doi, error);
+    return null;
+  }
 };
 
 const tryParseJson = (payload: string) => {
@@ -512,6 +624,7 @@ const buildMetadataPrompt = (context: string, url: string) =>
     'You are a meticulous citation metadata extractor.',
     'Return ONLY strict JSON with keys "title","author","year","publisher","site","accessed". Empty or missing values must be null.',
     'Never include prose, explanations, or markdown fences—respond with JSON only. Try to assume and use deep context for finding value.',
+    `If the page is blocked (cookie walls, headless browser issues) and you cannot extract anything reliable, respond ONLY with the keyword ${AI_METADATA_FALLBACK_KEYWORD}.`,
     `Context: ${context}`,
     `URL: ${url}`,
   ].join('\n');
@@ -537,11 +650,17 @@ const fetchReadableMarkdown = async (targetUrl: string) => {
   return null;
 };
 
+interface FetchMetadataViaAiResult {
+  meta: Partial<Metadata> | null;
+  error?: string;
+  fallback?: 'metadata-only';
+}
+
 const fetchMetadataViaAi = async (
   targetUrl: string,
   onProgress?: (message: string) => void,
   options?: { requireAuthor?: boolean; requiredFields?: (keyof Metadata)[] },
-): Promise<{ meta: Partial<Metadata> | null; error?: string }> => {
+): Promise<FetchMetadataViaAiResult> => {
   const markdown = await fetchReadableMarkdown(targetUrl);
   if (!markdown) {
     return { meta: null, error: 'Could not load a readable version of the page. Try the manual option.' };
@@ -553,6 +672,7 @@ const fetchMetadataViaAi = async (
 
   let metaResult: Partial<Metadata> | null = null;
   let lastError = '';
+  let fallbackRequested = false;
   const requiredFields = options?.requiredFields?.length
     ? options.requiredFields
     : (['author', 'title', 'site', 'publisher'] as (keyof Metadata)[]);
@@ -579,6 +699,12 @@ const fetchMetadataViaAi = async (
         continue;
       }
       const raw = await llm.text();
+      const trimmedRaw = raw.trim();
+      if (trimmedRaw.toUpperCase().includes(AI_METADATA_FALLBACK_KEYWORD)) {
+        fallbackRequested = true;
+        lastError = '';
+        break;
+      }
       const parsed = normalizeMetadata(parseMetadataPayload(raw));
       if (Object.keys(parsed).length) {
         metaResult = mergeMetadataValues(metaResult, parsed);
@@ -589,6 +715,10 @@ const fetchMetadataViaAi = async (
       console.error('SimpleCite metadata fetch failed', error);
       lastError = 'Could not reach the metadata service.';
     }
+  }
+
+  if (fallbackRequested) {
+    return { meta: metaResult, fallback: 'metadata-only' };
   }
 
   if (metaResult) {
@@ -916,13 +1046,45 @@ const SimpleCite: Component = () => {
       setStatus('Need a saved URL to redo this citation with AI.');
       return;
     }
-    setAiRedoLoadingId(citation.id);
+    const citationId = citation.id;
+    setAiRedoLoadingId(citationId);
     setStatus('Forcing SimpleCite AI to refresh metadata…');
     try {
       let metaResult: Partial<Metadata> | null = { ...metaPayload };
       const adoptMetadata = (candidate: Partial<Metadata> | null) => {
         metaResult = mergeMetadataValues(metaResult, candidate);
       };
+
+      const persistUpdatedCitation = async (source: MetadataSource, successMessage: string) => {
+        const fallbackTargetUrl =
+          (metaResult?.url && metaResult.url.trim()) || metaPayload.url || '';
+        const finalized = mergeMetadataWithDefaults(metaResult || {}, fallbackTargetUrl);
+        const enhancedMeta: Metadata = { ...finalized, source };
+        const refreshedCitation = formatCitation(enhancedMeta, decodeGuideline(citation.style));
+        await db.citations.update(citationId, {
+          text: refreshedCitation.text,
+          meta: JSON.stringify(enhancedMeta),
+          updatedAt: new Date(),
+        });
+        await loadCitations();
+        if (editingCitationId() === citationId) {
+          setMeta(enhancedMeta);
+          setMetaSource(source);
+        }
+        setStatus(successMessage);
+      };
+
+      const doi = extractDoi(metaPayload.url);
+      if (doi) {
+        setStatus('Refreshing via Crossref…');
+        const crossrefMeta = await fetchCrossrefMetadata(doi);
+        adoptMetadata(crossrefMeta);
+        if (metadataIsSufficient(metaResult, { requireAuthor: true })) {
+          await persistUpdatedCitation('simplecite', 'Citation refreshed via Crossref.');
+          return;
+        }
+        setStatus('Crossref data incomplete—asking SimpleCite AI…');
+      }
 
       const aiResult = await fetchMetadataViaAi(
         metaPayload.url,
@@ -931,25 +1093,17 @@ const SimpleCite: Component = () => {
       );
       adoptMetadata(aiResult.meta);
 
+      if (aiResult.fallback === 'metadata-only') {
+        setStatus('Site blocked—kept the existing metadata for this citation.');
+        return;
+      }
+
       if (!metadataIsSufficient(metaResult, { requireAuthor: true })) {
         setStatus(aiResult.error || 'SimpleCite AI could not refresh this citation.');
         return;
       }
 
-      const finalized = mergeMetadataWithDefaults(metaResult || {}, metaPayload.url);
-      const enhancedMeta: Metadata = { ...finalized, source: 'simplecite-ai' };
-      const refreshedCitation = formatCitation(enhancedMeta, decodeGuideline(citation.style));
-      await db.citations.update(citation.id, {
-        text: refreshedCitation.text,
-        meta: JSON.stringify(enhancedMeta),
-        updatedAt: new Date(),
-      });
-      await loadCitations();
-      if (editingCitationId() === citation.id) {
-        setMeta(enhancedMeta);
-        setMetaSource('simplecite-ai');
-      }
-      setStatus('Citation refreshed with SimpleCite AI.');
+      await persistUpdatedCitation('simplecite-ai', 'Citation refreshed with SimpleCite AI.');
     } catch (error) {
       console.error('SimpleCite AI redo failed', error);
       setStatus('SimpleCite AI ran into a problem. Try again in a bit.');
@@ -964,8 +1118,15 @@ const SimpleCite: Component = () => {
       setStatus('Paste a URL to let SimpleCite fetch metadata.');
       return;
     }
-    const targetUrl = /^(https?:)?\/\//i.test(value) ? value : `https://${value}`;
-    if (targetUrl !== value) {
+    let targetUrl = /^(https?:)?\/\//i.test(value) ? value : `https://${value}`;
+    const doi = extractDoi(value) || extractDoi(targetUrl);
+    if (doi) {
+      const doiUrl = `https://doi.org/${doi}`;
+      targetUrl = doiUrl;
+      if (url() !== doiUrl) {
+        setUrl(doiUrl);
+      }
+    } else if (targetUrl !== value) {
       setUrl(targetUrl);
     }
     setLoading(true);
@@ -984,7 +1145,9 @@ const SimpleCite: Component = () => {
       ) => {
         const { requireAuthor, source } = options || {};
         if (!metadataIsSufficient(metaResult, { requireAuthor })) return false;
-        const merged = mergeMetadataWithDefaults(metaResult || {}, targetUrl);
+        const fallbackUrl =
+          (metaResult?.url && metaResult.url.trim()) || targetUrl;
+        const merged = mergeMetadataWithDefaults(metaResult || {}, fallbackUrl);
         const finalMeta: Metadata = { ...merged, source: source || 'simplecite' };
         setMeta(finalMeta);
         setStatus(message);
@@ -992,6 +1155,24 @@ const SimpleCite: Component = () => {
         setMetaSource(source || 'simplecite');
         return true;
       };
+
+      if (doi) {
+        setStatus('Detected DOI—fetching metadata from Crossref…');
+        const crossrefMeta = await fetchCrossrefMetadata(doi);
+        if (crossrefMeta) {
+          adoptMetadata(crossrefMeta);
+          if (
+            finishIfReady('Crossref metadata loaded. Double-check the fields before saving.', {
+              requireAuthor: true,
+              source: 'simplecite',
+            })
+          ) {
+            return;
+          }
+        } else {
+          setStatus('Crossref unavailable—trying page metadata instead…');
+        }
+      }
 
       const directAttempt = await gatherMetadataFromSource(targetUrl);
       adoptMetadata(directAttempt.meta);
@@ -1043,6 +1224,16 @@ const SimpleCite: Component = () => {
           requireAuthor: true,
         })
       ) {
+        return;
+      }
+
+      if (aiResult.fallback === 'metadata-only') {
+        const fallbackMeta = mergeMetadataWithDefaults(metaResult ?? {}, targetUrl);
+        const fallbackSource: MetadataSource = 'simplecite';
+        setMeta({ ...fallbackMeta, source: fallbackSource });
+        setMetaSource(fallbackSource);
+        setEngine('simplecite');
+        setStatus('Site blocked—using available metadata only. Add missing details if needed.');
         return;
       }
 
