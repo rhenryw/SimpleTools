@@ -202,6 +202,61 @@
   margin-top: 0.15rem;
 }
 
+.versionNotice {
+  position: fixed;
+  bottom: 4.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-color);
+  border: 2px solid var(--text-color);
+  border-radius: 14px;
+  padding: 0.85rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  width: min(360px, 90vw);
+  box-shadow: 8px 8px 0 var(--sidebar-color);
+  z-index: 2250;
+}
+
+.versionNoticeText {
+  font-family: 'Funnel Sans', sans-serif;
+  color: var(--text-color);
+  line-height: 1.2;
+}
+
+.versionNoticeText strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.versionNoticeButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.versionNoticeButtons button {
+  flex: 1;
+  min-width: 90px;
+  border: 2px solid var(--text-color);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  background: transparent;
+  color: var(--text-color);
+  font-family: 'Funnel Sans', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.versionNoticeButtons button:hover,
+.versionNoticeButtons button:focus-visible {
+  background: var(--text-color);
+  color: var(--bg-color);
+}
+
 .updateBanner {
   position: fixed;
   bottom: 1rem;

@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from 'solid-js';
+import { createSignal, onMount, Show, createEffect } from 'solid-js';
 import { Sidebar } from './components/Sidebar';
 import { SettingsModal } from './components/SettingsModal';
 import { initTheme } from './store/themeStore';
@@ -64,6 +64,7 @@ type PageKey = 'home' | 'notebook' | 'html-viewer' | 'suite' | 'text-link' | 'ci
 
 const defaultSuiteTab: SuiteTab = 'text';
 const IGNORED_COMMIT_MESSAGE = 'Add Current Version Hash (Not an Update)';
+const VERSION_NOTICE_STORAGE_KEY = 'simpletools_version_notice_hidden';
 
 interface GitHubCommit {
   sha?: string;
@@ -120,12 +121,22 @@ function App() {
   const [isCurrentVersion, setIsCurrentVersion] = createSignal(true);
   const [updateReady, setUpdateReady] = createSignal(false);
   const [updateDismissed, setUpdateDismissed] = createSignal(false);
+  const [versionNoticeDismissed, setVersionNoticeDismissed] = createSignal(false);
+  const [versionNoticeSuppressed, setVersionNoticeSuppressed] = createSignal(false);
   const initial = parseRoute();
   const [currentPage, setCurrentPage] = createSignal<PageKey>(initial.page);
   const [suiteTab, setSuiteTab] = createSignal<SuiteTab>(initial.suiteTab);
 
   onMount(() => {
     const controller = new AbortController();
+    try {
+      const stored = window.localStorage.getItem(VERSION_NOTICE_STORAGE_KEY);
+      if (stored === '1') {
+        setVersionNoticeSuppressed(true);
+      }
+    } catch {
+      // ignore storage access issues
+    }
     const handlePopState = () => {
       const route = parseRoute();
       setCurrentPage(route.page);
@@ -167,7 +178,12 @@ function App() {
         if (!response.ok) return;
         const payload = await response.json();
         const commits: GitHubCommit[] = Array.isArray(payload) ? (payload as GitHubCommit[]) : [];
-        const preferred = commits.find((entry) => entry?.commit?.message?.trim() !== IGNORED_COMMIT_MESSAGE);
+        const preferred = commits.find((entry) => {
+          const message = typeof entry?.commit?.message === 'string'
+            ? entry.commit.message.split('\n')[0].trim()
+            : '';
+          return message !== IGNORED_COMMIT_MESSAGE;
+        });
         const latest = preferred ?? commits[0];
         if (!latest?.sha) return;
         const latestShort = latest.sha.slice(0, 8).toLowerCase();
@@ -196,6 +212,12 @@ function App() {
       window.removeEventListener('popstate', handlePopState);
        unsubscribeUpdates();
     };
+  });
+
+  createEffect(() => {
+    if (isCurrentVersion()) {
+      setVersionNoticeDismissed(false);
+    }
   });
 
   const navigate = (page: PageKey) => {
@@ -230,6 +252,26 @@ function App() {
   };
 
   const showUpdateBanner = () => updateReady() && !updateDismissed();
+
+  const showVersionNotice = () =>
+    !isCurrentVersion() && !versionNoticeDismissed() && !versionNoticeSuppressed();
+
+  const handleVersionReload = () => {
+    window.location.reload();
+  };
+
+  const handleVersionOk = () => {
+    setVersionNoticeDismissed(true);
+  };
+
+  const handleVersionDontShow = () => {
+    setVersionNoticeSuppressed(true);
+    try {
+      window.localStorage.setItem(VERSION_NOTICE_STORAGE_KEY, '1');
+    } catch {
+      // ignore storage issues
+    }
+  };
 
   const handleReloadNow = () => {
     setUpdateReady(false);
@@ -284,6 +326,25 @@ function App() {
           </Show>
         </div>
       )}
+      <Show when={showVersionNotice()}>
+        <div class={styles.versionNotice} role="alert">
+          <div class={styles.versionNoticeText}>
+            <strong>Update Available!</strong>
+            <span>Please hard reload. If that doesn't work, contact the deployment owner.</span>
+          </div>
+          <div class={styles.versionNoticeButtons}>
+            <button type="button" onClick={handleVersionReload}>
+              Reload
+            </button>
+            <button type="button" onClick={handleVersionOk}>
+              OK
+            </button>
+            <button type="button" onClick={handleVersionDontShow}>
+              Don't Show Again
+            </button>
+          </div>
+        </div>
+      </Show>
       <Show when={showUpdateBanner()}>
         <div class={styles.updateBanner} role="status" aria-live="polite">
           <div class={styles.updateBannerText}>
