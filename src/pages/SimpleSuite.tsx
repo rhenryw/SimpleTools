@@ -264,10 +264,12 @@ const HumanizerPanel: Component = () => {
       }, 200);
       const localPass = humanParaphraseText(value);
       const prompt = `
-Find better synonyms for things, but leave ~70% of words. Make it make sense but leave creative words, but still doctor it so it could be submitted toa university or business. Even if they are not commonly used. Only change words that make no sense or contridict context. Thanks! also, just return the text, and remove any em-dashes that could be replaced by commas or another way.
+Rewrite this text to make it sound more natural and human. Replace awkward or unclear words with better synonyms, but keep about 70% of the words unchanged. Remove em-dashes and replace them with commas or other punctuation. Only change words that don't make sense or contradict the context. Return ONLY the rewritten text with no explanations, reasoning, or commentary. only return the changed text (no markdown) and NOTHING else
 
+TEXT TO REWRITE:
 ${localPass}
-`;
+
+REWRITTEN TEXT:`;
       const encoded = encodeURIComponent(prompt);
       const response = await fetch(`https://text.pollinations.ai/${encoded}?model=openai`, {
         headers: { Accept: 'text/plain' },
@@ -284,6 +286,45 @@ ${localPass}
         }
       } catch {
         // Not JSON, use the raw text
+      }
+      
+      // Remove common reasoning/thinking patterns from response
+      trimmed = trimmed.trim();
+      
+      // Remove thinking/reasoning prefixes
+      const thinkingPatterns = [
+        /^(Let me|Let's|I'll|I will|I should|We need to|We should|We'll|First,|Here's|Okay,|Alright,|Sure,).*/im,
+        /^(To rewrite|Rewriting|The rewritten|Here is the rewritten).*/im,
+        /^REWRITTEN TEXT:\s*/i,
+        /^TEXT:\s*/i,
+      ];
+      
+      for (const pattern of thinkingPatterns) {
+        trimmed = trimmed.replace(pattern, '');
+      }
+      
+      // If response contains reasoning, try to extract just the final paragraph
+      // Look for the last substantial block of text after reasoning markers
+      const lines = trimmed.split('\n');
+      let foundReasoningEnd = false;
+      let finalTextStart = 0;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].toLowerCase();
+        // Skip lines that look like reasoning
+        if (line.match(/^(so |thus |therefore |let's |we |i |this |that means)/)) {
+          continue;
+        }
+        // Look for the start of actual content
+        if (!foundReasoningEnd && line.length > 30 && !line.includes('rewrite') && !line.includes('synonym')) {
+          foundReasoningEnd = true;
+          finalTextStart = i;
+        }
+      }
+      
+      // If we found a separation, use text from that point
+      if (foundReasoningEnd && finalTextStart > 0) {
+        trimmed = lines.slice(finalTextStart).join('\n').trim();
       }
       
       trimmed = trimmed.trim();
@@ -342,7 +383,23 @@ ${localPass}
           contentEditable
           data-placeholder="Paste or type and hit Humanize!"
           ref={panelRef}
-          onInput={(e) => setInput((e.target as HTMLDivElement).innerText || '')}
+          onInput={(e) => {
+            const text = (e.target as HTMLDivElement).innerText || '';
+            if (text.length > 5000) {
+              setInput(text.slice(0, 5000));
+              if (panelRef) {
+                panelRef.innerText = text.slice(0, 5000);
+              }
+            } else {
+              setInput(text);
+            }
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const paste = e.clipboardData?.getData('text/plain') || '';
+            const truncated = paste.slice(0, 5000);
+            document.execCommand('insertText', false, truncated);
+          }}
           innerHTML={diffHtml() || humanEscapeHtml(input())}
         />
         <div class={styles.humanizerFooter}>
