@@ -330,12 +330,9 @@ function App() {
         <div class={styles.versionNotice} role="alert">
           <div class={styles.versionNoticeText}>
             <strong>Update Available!</strong>
-            <span>Please hard reload. If that doesn't work, contact the deployment owner.</span>
+            <span>Please hard reload using ctrl + shift + r (cmd + shift + r on mac). If that doesn't work, contact the deployment owner.</span>
           </div>
           <div class={styles.versionNoticeButtons}>
-            <button type="button" onClick={handleVersionReload}>
-              Reload
-            </button>
             <button type="button" onClick={handleVersionOk}>
               OK
             </button>
