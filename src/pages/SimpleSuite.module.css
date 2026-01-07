@@ -98,9 +98,9 @@
 }
 
 .outputBox {
-  height: 400px;
-  min-height: 400px;
-  max-height: 400px;
+  flex: 1;
+  min-height: 200px;
+  max-height: 600px;
   border: 1px solid var(--text-color);
   padding: 0.75rem;
   overflow: auto;

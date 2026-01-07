@@ -263,13 +263,20 @@ const HumanizerPanel: Component = () => {
         setElapsed(seconds);
       }, 200);
       const localPass = humanParaphraseText(value);
-      const prompt = `
-Rewrite this text to make it sound more natural and human. Replace awkward or unclear words with better synonyms, but keep about 70% of the words unchanged. Remove em-dashes and replace them with commas or other punctuation. Only change words that don't make sense or contradict the context. Return ONLY the rewritten text with no explanations, reasoning, or commentary. only return the changed text (no markdown) and NOTHING else
+      const prompt = `You are a text rewriter. Your job is to output ONLY the rewritten text with absolutely no commentary, explanations, or thinking process.
 
-TEXT TO REWRITE:
-${localPass}
+Rewrite the following text to sound more natural. Replace awkward words with better synonyms, keeping ~70% of words unchanged. Remove em-dashes. Change only words that don't make sense.
 
-REWRITTEN TEXT:`;
+DO NOT include any of the following in your response:
+- Explanations about what you changed
+- Reasoning about word choices
+- Commentary about the process
+- Markdown formatting
+- Phrases like "We want", "We must", "Let's", "The challenge is"
+
+ONLY output the final rewritten text and nothing else.
+
+${localPass}`;
       const encoded = encodeURIComponent(prompt);
       const response = await fetch(`https://text.pollinations.ai/${encoded}?model=openai`, {
         headers: { Accept: 'text/plain' },
@@ -281,50 +288,53 @@ REWRITTEN TEXT:`;
       try {
         const parsed = JSON.parse(trimmed);
         if (parsed && typeof parsed === 'object') {
-          // Extract content from various possible fields
           trimmed = parsed.content || parsed.text || parsed.reasoning_content || trimmed;
         }
       } catch {
         // Not JSON, use the raw text
       }
       
-      // Remove common reasoning/thinking patterns from response
       trimmed = trimmed.trim();
       
-      // Remove thinking/reasoning prefixes
-      const thinkingPatterns = [
-        /^(Let me|Let's|I'll|I will|I should|We need to|We should|We'll|First,|Here's|Okay,|Alright,|Sure,).*/im,
-        /^(To rewrite|Rewriting|The rewritten|Here is the rewritten).*/im,
-        /^REWRITTEN TEXT:\s*/i,
-        /^TEXT:\s*/i,
+      // Aggressively remove reasoning/thinking text
+      // If the response contains meta-discussion, extract only the actual content
+      const metaPatterns = [
+        // Remove lines discussing what to do
+        /^.*?(We want|We must|We need|We should|We can|We could|The challenge is|Let's|Identify|The instruction|But instruction).*/gim,
+        // Remove lines about keeping/changing words
+        /^.*?(keep.*unchanged|change.*words|Replace.*with|mark words to keep).*/gim,
+        // Remove thinking markers
+        /^.*?(That means|However|So we|Thus|Therefore|Hard but maybe).*/gim,
+        // Remove prefix explanations
+        /^(Let me|Let's|I'll|I will|I should|Here's|Okay|Sure|First).*/gim,
+        /^(To rewrite|Rewriting|The rewritten|Here is).*/gim,
+        /^(REWRITTEN TEXT:|TEXT:|Return only text).*/gim,
       ];
       
-      for (const pattern of thinkingPatterns) {
+      for (const pattern of metaPatterns) {
         trimmed = trimmed.replace(pattern, '');
       }
       
-      // If response contains reasoning, try to extract just the final paragraph
-      // Look for the last substantial block of text after reasoning markers
-      const lines = trimmed.split('\n');
-      let foundReasoningEnd = false;
-      let finalTextStart = 0;
+      // Clean up extra whitespace
+      trimmed = trimmed.replace(/\n\n+/g, '\n').trim();
       
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].toLowerCase();
-        // Skip lines that look like reasoning
-        if (line.match(/^(so |thus |therefore |let's |we |i |this |that means)/)) {
-          continue;
+      // If still contains reasoning indicators, try to extract just quoted or final content
+      if (trimmed.match(/keep|change|rewrite|replace|unchanged/i)) {
+        // Look for quoted content
+        const quoteMatch = trimmed.match(/"([^"]{50,})"/);
+        if (quoteMatch) {
+          trimmed = quoteMatch[1];
+        } else {
+          // Split by periods and find substantial sentences without meta-discussion
+          const sentences = trimmed.split(/\.\s+/);
+          const cleanSentences = sentences.filter(s => 
+            s.length > 30 && 
+            !s.match(/keep|change|rewrite|replace|unchanged|word|synonym/i)
+          );
+          if (cleanSentences.length > 0) {
+            trimmed = cleanSentences.join('. ') + '.';
+          }
         }
-        // Look for the start of actual content
-        if (!foundReasoningEnd && line.length > 30 && !line.includes('rewrite') && !line.includes('synonym')) {
-          foundReasoningEnd = true;
-          finalTextStart = i;
-        }
-      }
-      
-      // If we found a separation, use text from that point
-      if (foundReasoningEnd && finalTextStart > 0) {
-        trimmed = lines.slice(finalTextStart).join('\n').trim();
       }
       
       trimmed = trimmed.trim();
