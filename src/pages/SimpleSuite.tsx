@@ -264,7 +264,7 @@ const HumanizerPanel: Component = () => {
       }, 200);
       const localPass = humanParaphraseText(value);
       const prompt = `
-Find better synonyms for things, lbut leave 90% of words. Even if they are not commonly used. Only change words that make no sense or contridict context. Thanks! also, just return the text, and remove any em-dashes that could be replaced by commas or another way.
+Find better synonyms for things, but leave ~70% of words. Make it make sense but leave creative words, but still doctor it so it could be submitted toa university or business. Even if they are not commonly used. Only change words that make no sense or contridict context. Thanks! also, just return the text, and remove any em-dashes that could be replaced by commas or another way.
 
 ${localPass}
 `;
