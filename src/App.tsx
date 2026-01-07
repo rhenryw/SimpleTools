@@ -256,9 +256,7 @@ function App() {
   const showVersionNotice = () =>
     !isCurrentVersion() && !versionNoticeDismissed() && !versionNoticeSuppressed();
 
-  const handleVersionReload = () => {
-    window.location.reload();
-  };
+
 
   const handleVersionOk = () => {
     setVersionNoticeDismissed(true);
