@@ -273,7 +273,20 @@ ${localPass}
         headers: { Accept: 'text/plain' },
       });
       const result = await response.text();
-      const trimmed = result.trim();
+      let trimmed = result.trim();
+      
+      // Handle JSON response format if API returns structured data
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') {
+          // Extract content from various possible fields
+          trimmed = parsed.content || parsed.text || parsed.reasoning_content || trimmed;
+        }
+      } catch {
+        // Not JSON, use the raw text
+      }
+      
+      trimmed = trimmed.trim();
       setInput(trimmed);
       setDiffHtml(humanBuildDiffHtml(value, trimmed, styles.diffChanged));
       setStatus('Done. Changed parts are highlighted.');

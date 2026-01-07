@@ -410,7 +410,52 @@ const scrubOrganizationalAuthor = (data: Metadata) => {
   return data;
 };
 
-const finalizeMetadata = (data: Metadata) => scrubOrganizationalAuthor(promoteOriginFields(data));
+const handleWikipediaMetadata = (data: Metadata) => {
+  const url = data.url.toLowerCase();
+  const isWikipedia = url.includes('wikipedia.org') || url.includes('wikimedia.org');
+  
+  if (!isWikipedia) return data;
+  
+  const next = { ...data };
+  
+  if (next.title) {
+    next.title = next.title.replace(/\s*[-–]\s*Wikipedia\s*$/i, '').trim();
+    
+    const looksLikeDescription = /^(\d{4}s?\s+)?(period|time|era|event|series)\s+(of|in|during|that|when)/i.test(next.title);
+    
+    if (looksLikeDescription) {
+      try {
+        const urlPath = new URL(data.url).pathname;
+        const match = urlPath.match(/\/wiki\/([^#?]+)$/);
+        if (match) {
+          const pathTitle = decodeURIComponent(match[1]).replace(/_/g, ' ');
+          if (pathTitle) {
+            next.title = pathTitle;
+          }
+        }
+      } catch {
+      }
+    }
+  }
+  
+  // Set proper Wikipedia author if missing or generic
+  if (!next.author || next.author.toLowerCase().includes('wikipedia')) {
+    next.author = 'Contributors to Wikimedia projects';
+  }
+  
+  if (!next.publisher || next.publisher.toLowerCase() === 'wikipedia') {
+    next.publisher = 'Wikimedia Foundation, Inc.';
+  }
+  
+  if (!next.site || next.site.toLowerCase() === 'en.wikipedia.org') {
+    next.site = 'Wikipedia';
+  }
+  
+  return next;
+};
+
+const finalizeMetadata = (data: Metadata) => 
+  handleWikipediaMetadata(scrubOrganizationalAuthor(promoteOriginFields(data)));
 
 type JsonLdEntry = Record<string, unknown>;
 
@@ -621,10 +666,15 @@ const gatherMetadataFromSource = async (targetUrl: string, useProxy = false) => 
 
 const buildMetadataPrompt = (context: string, url: string) =>
   [
-    'You are a meticulous citation metadata extractor.',
-    'Return ONLY strict JSON with keys "title","author","year","publisher","site","accessed". Empty or missing values must be null.',
-    'Never include prose, explanations, or markdown fences—respond with JSON only. Try to assume and use deep context for finding value.',
-    `If the page is blocked (cookie walls, headless browser issues) and you cannot extract anything reliable, respond ONLY with the keyword ${AI_METADATA_FALLBACK_KEYWORD}.`,
+    'extract citation metadata and return only strict json with keys "title","author","year","publisher","site","accessed". empty values must be null.',
+    'never include prose, explanations, or markdown fences. respond with json only.',
+    'if context starts with "title: [text]", use that exact text as title. otherwise extract from page header or h1.',
+    'never use descriptions or summaries as title.',
+    'for authors: look for "by [name]" or "author: [name]" patterns in the content. extract the actual person name, not site credits.',
+    'for dates: look for "published time:" header or dates in format like "december 4, 2025" or "2025-12-04". extract year at minimum.',
+    'for wikipedia: title from article name only. author should be "contributors to wikimedia projects".',
+    `if page is blocked or unreadable, respond only with keyword ${AI_METADATA_FALLBACK_KEYWORD}.`,
+    'if you can not find any of the above (by [name], or other specific strings) use common sense and see if there are any pother identifiers, maybe in the text itself, to find the correct data',
     `Context: ${context}`,
     `URL: ${url}`,
   ].join('\n');
