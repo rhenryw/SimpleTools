@@ -189,6 +189,7 @@
     padding: 1.5rem;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 1rem;
+    line-height: 1.6;
     background: transparent;
     color: var(--text-color);
     overflow-y: auto;
@@ -228,4 +229,107 @@
 .preview pre code {
     background: none;
     padding: 0;
+}
+
+.toolbar {
+    margin: 0.75rem 1.25rem 1.1rem;
+    display: flex;
+    gap: 0.95rem;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 0.45rem 0.6rem;
+    border: 2px solid var(--text-color);
+    border-radius: 6px;
+    box-shadow: 8px 8px 0 0 var(--sidebar-color);
+    background: var(--bg-color);
+}
+
+.toolbarGroup {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.toggleActive {
+    background-color: var(--main-color) !important;
+    color: var(--bg-color) !important;
+    box-shadow: 3px 3px 0 0 var(--sidebar-color);
+}
+
+.icon {
+    width: 17px;
+    height: 17px;
+    display: block;
+}
+
+.iconTextBold {
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: -0.02em;
+    line-height: 1;
+}
+
+.iconTextItalic {
+    font-style: italic;
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.iconTextUnderline {
+    text-decoration: underline;
+    font-size: 1rem;
+    line-height: 1;
+    font-weight: 700;
+}
+
+.iconMd {
+    font-weight: 800;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    line-height: 1;
+}
+
+.editor h1,
+.editor h2,
+.editor h3 {
+    margin: 1.1em 0 0.3em;
+    line-height: 1.2;
+}
+
+.editor h1 {
+    font-size: 1.8rem;
+}
+
+.editor h2 {
+    font-size: 1.5rem;
+}
+
+.editor h3 {
+    font-size: 1.25rem;
+}
+
+.editor p,
+.editor ul,
+.editor ol,
+.editor blockquote,
+.editor pre {
+    margin: 0.6em 0;
+}
+
+.editor ul,
+.editor ol {
+    padding-left: 1.2em;
+}
+
+.editor blockquote {
+    border-left: 3px solid var(--text-color);
+    padding-left: 0.75em;
+    color: var(--text-2-color);
+}
+
+.editor pre {
+    background: var(--sidebar-color);
+    padding: 0.9em;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: "SFMono-Regular", Menlo, Consolas, monospace;
 }

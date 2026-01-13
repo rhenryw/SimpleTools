@@ -1,8 +1,24 @@
 import { createSignal, createEffect, For, onCleanup, Show } from 'solid-js';
 import type { Component } from 'solid-js';
+import { marked } from 'marked';
+import {
+  Bold,
+  Italic,
+  Underline,
+  List,
+  ListOrdered,
+  Heading1,
+  Heading2,
+  Heading3,
+  Quote,
+  Code,
+  Link as LinkIcon,
+} from 'lucide-solid';
 import { db } from '../db';
 import type { Notebook as NotebookType, Page as PageType } from '../db';
 import styles from './Notebook.module.css';
+
+const IconMarkdown = () => <span class={styles.iconMd}>MD</span>;
 
 const Notebook: Component = () => {
   const [notebooks, setNotebooks] = createSignal<NotebookType[]>([]);
@@ -16,7 +32,11 @@ const Notebook: Component = () => {
   
   const [hasChanges, setHasChanges] = createSignal(false);
   const [isSaving, setIsSaving] = createSignal(false);
+  const [markdownMode, setMarkdownMode] = createSignal(false);
   let editorRef: HTMLDivElement | undefined;
+  let savedRange: Range | null = null;
+
+  marked.setOptions({ breaks: true, gfm: true });
 
   const refreshNotebooks = async () => {
     const nb = await db.notebooks.toArray();
@@ -24,6 +44,18 @@ const Notebook: Component = () => {
   };
   
   createEffect(() => { refreshNotebooks(); });
+
+  const handleSelectionChange = () => {
+    const sel = document.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const anchor = sel.anchorNode;
+    if (anchor && editorRef && editorRef.contains(anchor)) {
+      savedRange = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  document.addEventListener('selectionchange', handleSelectionChange);
+  onCleanup(() => document.removeEventListener('selectionchange', handleSelectionChange));
 
   createEffect(async () => {
     const nid = selectedNotebookId();
@@ -46,12 +78,39 @@ const Notebook: Component = () => {
         }
         setPageTitle(page.title);
         setHasChanges(false);
+
+        const looksLikeMarkdown = !!page.content && !/<[a-z][\s\S]*>/i.test(page.content) && /[#*_`-]/.test(page.content);
+        if (looksLikeMarkdown) {
+          setMarkdownMode(true);
+          if (editorRef) {
+            editorRef.innerText = page.content;
+            renderMarkdownFromText(false);
+          }
+        } else {
+          setMarkdownMode(false);
+        }
       }
     } else {
         setContent('');
         setPageTitle('');
+        setMarkdownMode(false);
     }
   });
+
+  const syncContentFromEditor = () => {
+    if (!editorRef) return;
+    const html = editorRef.innerHTML;
+    setContent(html);
+    setHasChanges(true);
+  };
+
+  const restoreSelection = () => {
+    if (!savedRange) return;
+    const sel = document.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(savedRange);
+  };
 
   const saveCurrentPage = async () => {
     const pid = selectedPageId();
@@ -82,41 +141,80 @@ const Notebook: Component = () => {
   onCleanup(() => clearInterval(timer));
 
   const handleEditorInput = () => {
-    if (!editorRef) return;
-    let html = editorRef.innerHTML;
-    html = html.replace(/<div>(#{1,3})\s+([^<]+)<\/div>/g, (_m, hashes: string, text: string) => {
-      const level = Math.min(hashes.length, 3);
-      return `<h${level}>${text}</h${level}>`;
-    });
-    html = html.replace(/\*\*\*([\s\S]+?)\*\*\*/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<strong><em>${content}</em></strong>`;
-    });
-    html = html.replace(/\_\_\_([\s\S]+?)\_\_\_/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<strong><em>${content}</em></strong>`;
-    });
-    html = html.replace(/(?<!\*)\*\*([^*]+?)\*\*(?!\*)/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<strong>${content}</strong>`;
-    });
-    html = html.replace(/(?<!_)__([^_]+?)__(?!_)/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<strong>${content}</strong>`;
-    });
-    html = html.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<em>${content}</em>`;
-    });
-    html = html.replace(/(?<!_)_([^_]+?)_(?!_)/g, (match, content: string) => {
-      if (!content || !content.trim()) return match;
-      return `<em>${content}</em>`;
-    });
-    if (html !== editorRef.innerHTML) {
-      editorRef.innerHTML = html;
+    if (markdownMode()) {
+      renderMarkdownFromText();
+    } else {
+      syncContentFromEditor();
     }
-    setContent(html);
-    setHasChanges(true);
+  };
+
+  const applyCommand = (command: string, value?: string) => {
+    if (!editorRef) return;
+    editorRef.focus();
+    restoreSelection();
+    document.execCommand(command, false, value);
+    syncContentFromEditor();
+  };
+
+  const insertBlock = (tag: string, placeholder: string) => {
+    if (!editorRef) return;
+    editorRef.focus();
+    restoreSelection();
+    const selection = window.getSelection();
+    const selectedText = selection && selection.toString();
+    const html = selectedText
+      ? `<${tag}>${selectedText}</${tag}>`
+      : `<${tag}>${placeholder}</${tag}>`;
+    document.execCommand('insertHTML', false, html);
+    syncContentFromEditor();
+  };
+
+  const handleToolbarMouseDown = (e: MouseEvent) => {
+    e.preventDefault();
+    restoreSelection();
+  };
+
+  const handleLink = () => {
+    const url = prompt('Link URL');
+    if (!url) return;
+    const sel = document.getSelection();
+    const hasSelection = sel && sel.toString().trim().length > 0;
+    if (hasSelection) {
+      applyCommand('createLink', url);
+      return;
+    }
+    const html = `<a href="${url}" target="_blank" rel="noreferrer noopener">${url}</a>`;
+    restoreSelection();
+    document.execCommand('insertHTML', false, html);
+    syncContentFromEditor();
+  };
+
+  const renderMarkdownFromText = (markDirty = true) => {
+    if (!editorRef) return;
+    const markdown = editorRef.innerText;
+    const parsed = marked.parse(markdown);
+    if (parsed instanceof Promise) {
+      parsed
+        .then((value) => {
+          if (!editorRef) return;
+          editorRef.innerHTML = value;
+          setContent(value);
+          setHasChanges(markDirty);
+        })
+        .catch(() => {});
+      return;
+    }
+    editorRef.innerHTML = parsed;
+    setContent(parsed);
+    setHasChanges(markDirty);
+  };
+
+  const toggleMarkdownMode = () => {
+    const next = !markdownMode();
+    setMarkdownMode(next);
+    if (next) {
+      renderMarkdownFromText(false);
+    }
   };
 
   const handleTitleChange = (e: any) => {
@@ -296,6 +394,32 @@ const Notebook: Component = () => {
                     placeholder="Page Title"
                 />
                 <span class={styles.status}>{isSaving() ? 'Saving...' : hasChanges() ? 'Unsaved' : 'Saved'}</span>
+            </div>
+            <div class={`panel-toolbar ${styles.toolbar}`}>
+              <div class={styles.toolbarGroup}>
+                <button class="panel-toolbar-button" title="Bold" aria-label="Bold" onMouseDown={handleToolbarMouseDown} onClick={() => applyCommand('bold')}><Bold class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Italic" aria-label="Italic" onMouseDown={handleToolbarMouseDown} onClick={() => applyCommand('italic')}><Italic class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Underline" aria-label="Underline" onMouseDown={handleToolbarMouseDown} onClick={() => applyCommand('underline')}><Underline class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Bulleted list" aria-label="Bulleted list" onMouseDown={handleToolbarMouseDown} onClick={() => applyCommand('insertUnorderedList')}><List class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Numbered list" aria-label="Numbered list" onMouseDown={handleToolbarMouseDown} onClick={() => applyCommand('insertOrderedList')}><ListOrdered class={styles.icon} size={18} stroke-width={2} /></button>
+              </div>
+              <div class={styles.toolbarGroup}>
+                <button class="panel-toolbar-button" title="Heading 1" aria-label="Heading 1" onMouseDown={handleToolbarMouseDown} onClick={() => insertBlock('h1', 'Heading 1')}><Heading1 class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Heading 2" aria-label="Heading 2" onMouseDown={handleToolbarMouseDown} onClick={() => insertBlock('h2', 'Heading 2')}><Heading2 class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Heading 3" aria-label="Heading 3" onMouseDown={handleToolbarMouseDown} onClick={() => insertBlock('h3', 'Heading 3')}><Heading3 class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Quote" aria-label="Quote" onMouseDown={handleToolbarMouseDown} onClick={() => insertBlock('blockquote', 'Quote')}><Quote class={styles.icon} size={18} stroke-width={2} /></button>
+                <button class="panel-toolbar-button" title="Code block" aria-label="Code block" onMouseDown={handleToolbarMouseDown} onClick={() => insertBlock('pre', 'Code block')}><Code class={styles.icon} size={18} stroke-width={2} /></button>
+              </div>
+              <div class={styles.toolbarGroup}>
+                <button class="panel-toolbar-button" title="Link" aria-label="Link" onMouseDown={handleToolbarMouseDown} onClick={handleLink}><LinkIcon class={styles.icon} size={18} stroke-width={2} /></button>
+                <button 
+                  class={`panel-toolbar-button ${markdownMode() ? styles.toggleActive : ''}`}
+                  title="Markdown mode"
+                  aria-label="Markdown mode"
+                  onMouseDown={handleToolbarMouseDown}
+                  onClick={toggleMarkdownMode}
+                ><IconMarkdown /></button>
+              </div>
             </div>
             <div class={styles.editorContainer}>
                 <div
