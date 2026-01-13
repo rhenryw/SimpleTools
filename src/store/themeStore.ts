@@ -13,7 +13,7 @@ export interface Theme {
   accentColor: string;
 }
 
-const DEFAULT_THEME = 'cream';
+const DEFAULT_THEME = 'matcha';
 const CUSTOM_THEMES_KEY = 'simpletools-custom-themes';
 
 const [currentThemeName, setCurrentThemeName] = createSignal(
