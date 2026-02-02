@@ -7,7 +7,7 @@ A compact suite of web tools crafted with SolidJS, Vite, and TypeScript.
 - Notebook: Markdown support, auto-save to IndexedDB, organized by notebooks and pages.
 - HTML Previewer: Real-time preview of HTML/CSS/JS.
 - Theming: Custom YAML-driven themes with live preview in Settings.
-- Lightning-fast AI-powered citation generator: Ultra-quick, faster than Scribr + MyBib
+- Lightning-fast AI-powered citation generator: Ultra-quick, faster than Scribr + MyBib (Powered by [Pollinations](https://pollinations.ai)
 
 ## Setup
 1. `npm install`
