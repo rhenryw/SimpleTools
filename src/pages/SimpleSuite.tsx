@@ -4,6 +4,7 @@ import { Editor } from 'mini-canvas-editor';
 import 'mini-canvas-editor/css/editor.css';
 import { db } from '../db';
 import type { Drawing } from '../db';
+import { getPollinationsApiKey, POLLINATIONS_TEXT_ENDPOINT } from '../utils/env';
 import styles from './SimpleSuite.module.css';
 
 export type SuiteTab = 'text' | 'files' | 'human' | 'draw';
@@ -278,9 +279,16 @@ ONLY output the final rewritten text and nothing else.
 
 ${localPass}`;
       const encoded = encodeURIComponent(prompt);
-      const response = await fetch(`https://text.pollinations.ai/${encoded}?model=openai`, {
-        headers: { Accept: 'text/plain' },
-      });
+      const apiKey = await getPollinationsApiKey();
+      if (!apiKey) {
+        throw new Error('Missing API key');
+      }
+      const response = await fetch(
+        `${POLLINATIONS_TEXT_ENDPOINT}/${encoded}=gemini-fast?key=${apiKey}`,
+        {
+          headers: { Accept: 'text/plain' },
+        },
+      );
       const result = await response.text();
       let trimmed = result.trim();
       

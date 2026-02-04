@@ -1,4 +1,4 @@
-const CACHE_NAME = 'simpletools-cache-v1';
+const CACHE_NAME = 'simpletools-cache-v2';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -31,6 +31,12 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+  if (url.origin !== self.location.origin) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -41,7 +47,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() =>
-          event.request.mode === 'navigate' ? caches.match('/index.html') : undefined,
+          event.request.mode === 'navigate' ? caches.match('/index.html') : Response.error(),
         );
     }),
   );

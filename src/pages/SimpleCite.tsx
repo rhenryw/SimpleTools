@@ -2,6 +2,7 @@ import { createSignal, Show, onMount, For } from 'solid-js';
 import type { Component } from 'solid-js';
 import { db } from '../db';
 import type { Citation } from '../db';
+import { getPollinationsApiKey, POLLINATIONS_TEXT_ENDPOINT } from '../utils/env';
 import styles from './SimpleCite.module.css';
 
 type Guideline = 'apa7' | 'mla9' | 'ieee' | 'chicago17';
@@ -738,8 +739,14 @@ const fetchMetadataViaAi = async (
     onProgress?.(`Extracting metadata with SimpleCite…${chunkLabel}`);
     try {
       const prompt = buildMetadataPrompt(chunk, targetUrl);
+      const apiKey = await getPollinationsApiKey();
+      if (!apiKey) {
+        throw new Error('Missing API key');
+      }
       const llm = await fetch(
-        `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai`,
+        `${POLLINATIONS_TEXT_ENDPOINT}/${encodeURIComponent(prompt)}=gemini-fast?key=${
+          apiKey
+        }`,
         {
           headers: { Accept: 'text/plain' },
         },
