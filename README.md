@@ -342,29 +342,3 @@ See `LICENSE` for full details.
 4. Submit a pull request
 
 Please keep changes minimal, modular, and performance-focused.
-
----
-
-# Philosophy
-
-SimpleTools is built around:
-
-* Simplicity
-* Speed
-* Ownership of your data
-* Zero friction
-
-No accounts. No nonsense. Just tools.
-
----
-
-If you'd like, I can also generate:
-
-* A shorter marketing-style README
-* A developer-focused README
-* A more technical architecture deep dive
-* A contribution guideline doc
-* A security policy
-* A Cloudflare Pages–optimized deployment guide
-
-Just tell me which direction you want.
