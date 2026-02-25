@@ -114,11 +114,31 @@ const TextTools: Component = () => {
 
   const removeDuplicates = () => {
     const lines = text().split('\n');
-    const seen = new Set<string>();
+    const seenLines = new Set<string>();
     const out: string[] = [];
-    for (const line of lines) {
-      if (!seen.has(line)) {
-        seen.add(line);
+    for (let line of lines) {
+      // Remove duplicate words within the line
+      const words = line.split(/(\s+)/); // keep spaces
+      const seenWords = new Set<string>();
+      const dedupedWords = words.map((w, i) => {
+        // Only deduplicate word tokens, not whitespace
+        if (i % 2 === 0) {
+          if (!seenWords.has(w) && w.trim() !== '') {
+            seenWords.add(w);
+            return w;
+          } else if (w.trim() === '') {
+            return w;
+          } else {
+            return '';
+          }
+        } else {
+          return w;
+        }
+      }).join('');
+      line = dedupedWords;
+      // Remove duplicate lines
+      if (!seenLines.has(line)) {
+        seenLines.add(line);
         out.push(line);
       }
     }
